@@ -36,15 +36,15 @@ tags: [pine-script, tradingview, trading, indicators, strategies, backtesting, t
 
 | File | Contents | When to read |
 |---|---|---|
-| `references/language-mastery.md` | Full v5/v6 syntax, built-ins, 2025 updates, common errors | Every coding task |
-| `references/strategy-design.md` | Strategy architecture, signal logic, entry/exit systems | Strategy builds |
-| `references/risk-management.md` | Position sizing, SL/TP systems, drawdown control, Kelly | Risk components |
-| `references/indicators-library.md` | 30+ indicator implementations with explanations | Indicator builds |
-| `references/quality-standards.md` | Code structure, documentation, anti-patterns, publication checklist | All outputs |
+| `language-mastery.md` | Full v5/v6 syntax, built-ins, 2025 updates, common errors | Every coding task |
+| `strategy-design.md` | Strategy architecture, signal logic, entry/exit systems | Strategy builds |
+| `risk-management.md` | Position sizing, SL/TP systems, drawdown control, Kelly | Risk components |
+| `indicators-library.md` | 30+ indicator implementations with explanations | Indicator builds *(file pending)* |
+| `quality-standards.md` | Code structure, documentation, anti-patterns, publication checklist | All outputs |
+| `known-bugs.md` | Verified Pine Script bugs with root cause and fix | Step 5 validation |
 
 **Standard task**: Read `language-mastery.md` + relevant reference.
-**Full strategy build**: Read all five files.
-
+**Full strategy build**: Read all files.
 ---
 
 ## Execution Protocol
