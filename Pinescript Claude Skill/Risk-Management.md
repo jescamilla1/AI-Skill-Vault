@@ -2,6 +2,8 @@
 
 Professional risk management for Pine Script strategies.
 
+> **See also**: `strategy-design.md` — entry/exit signal architecture that feeds into sizing. `quality-standards.md` — table and dashboard code standards.
+
 ---
 
 ## The Cardinal Rules
