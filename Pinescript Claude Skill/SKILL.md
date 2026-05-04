@@ -2,22 +2,14 @@
 name: pinescript-mastery
 description: >
   Transforms the AI into an elite Pine Script developer and trading strategy
-  architect — capable of writing production-grade indicators, strategies, and
-  libraries from scratch, debugging complex scripts, designing complete trading
-  systems, and teaching Pine Script at any level. Covers Pine Script v5 and
-  the latest v6 (December 2024) with all 2025 updates: unlimited local scopes,
-  10x string limits, dynamic request.*() calls, strict boolean logic, and
-  the full modern feature set. Goes beyond code: designs multi-factor strategy
-  logic, builds risk management systems, optimizes for backtesting accuracy,
-  prevents overfitting, and produces TradingView-publishable scripts with
-  professional structure, documentation, and UX. Trigger on: "write a Pine
-  Script", "create an indicator", "build a strategy in Pine Script",
-  "Pine Script help", "TradingView script", "debug my Pine Script",
-  "how do I code X in Pine Script", "convert this to Pine Script",
-  "optimize my strategy", "Pine Script v5", "Pine Script v6", or any
-  request involving TradingView indicator or strategy development.
-  Also trigger when the user describes a trading idea and wants it coded,
-  even without explicitly mentioning Pine Script.
+  architect. Writes production-grade indicators, strategies, and libraries from
+  scratch, debugs complex scripts, and teaches Pine Script at any level. Covers
+  v5 and v6 with full risk management, backtesting integrity, repainting
+  prevention, and TradingView-publishable output quality. Trigger on: "write a
+  Pine Script", "create an indicator", "build a strategy", "Pine Script help",
+  "debug my Pine Script", "convert to Pine Script", "Pine Script v5/v6",
+  or any TradingView indicator/strategy request — including plain trading ideas
+  without explicit mention of Pine Script.
 version: "1.0.0"
 author: "alradyin"
 tags: [pine-script, tradingview, trading, indicators, strategies, backtesting, technical-analysis, algorithms, quantitative]
@@ -36,14 +28,15 @@ tags: [pine-script, tradingview, trading, indicators, strategies, backtesting, t
 
 | File | Contents | When to read |
 |---|---|---|
-| `references/language-mastery.md` | Full v5/v6 syntax, built-ins, 2025 updates, common errors | Every coding task |
-| `references/strategy-design.md` | Strategy architecture, signal logic, entry/exit systems | Strategy builds |
-| `references/risk-management.md` | Position sizing, SL/TP systems, drawdown control, Kelly | Risk components |
-| `references/indicators-library.md` | 30+ indicator implementations with explanations | Indicator builds |
-| `references/quality-standards.md` | Code structure, documentation, anti-patterns, publication checklist | All outputs |
+| `language-mastery.md` | Full v5/v6 syntax, built-ins, 2025 updates, common errors | Every coding task |
+| `strategy-design.md` | Strategy architecture, signal logic, entry/exit systems | Strategy builds |
+| `risk-management.md` | Position sizing, SL/TP systems, drawdown control, Kelly | Risk components |
+| `indicators-library.md` | 30+ indicator implementations with explanations | Indicator builds |
+| `quality-standards.md` | Code structure, documentation, anti-patterns, publication checklist | All outputs |
+| `known-bugs.md` | Verified Pine Script bugs with root cause and fix | Step 5 validation |
 
 **Standard task**: Read `language-mastery.md` + relevant reference.
-**Full strategy build**: Read all five files.
+**Full strategy build**: Read all files.
 
 ---
 
@@ -96,7 +89,7 @@ If request is clear → proceed immediately.
 
 ### STEP 3 — Architecture Design (Strategy Builds)
 
-Read `references/strategy-design.md` and design before coding:
+Read `strategy-design.md` and design before coding:
 
 ```
 SIGNAL STACK
@@ -123,8 +116,8 @@ POSITION SIZING
 
 ### STEP 4 — Write Production-Grade Code
 
-Read `references/language-mastery.md` before writing.
-Read `references/quality-standards.md` to apply all standards.
+Read `language-mastery.md` before writing.
+Read `quality-standards.md` to apply all standards.
 
 **Every script must have:**
 
@@ -154,6 +147,8 @@ Read `references/quality-standards.md` to apply all standards.
 ---
 
 ### STEP 5 — Validate Before Delivering
+
+Check `known-bugs.md` first — confirm no known bugs apply to this output.
 
 Run this checklist on every output:
 
