@@ -2,6 +2,8 @@
 
 Professional trading strategy design methodology for Pine Script.
 
+> **See also**: `risk-management.md` — position sizing and SL/TP systems for all exit logic. `known-bugs.md` — verify before using `request.security()` or MTF patterns.
+
 ---
 
 ## The Strategy Design Process
