@@ -2,6 +2,8 @@
 
 Every Pine Script output must meet these standards before delivery.
 
+> **See also**: `known-bugs.md` — check before delivery. `strategy-design.md` — signal/entry architecture. `risk-management.md` — position sizing and SL/TP systems.
+
 ---
 
 ## Code Structure Template
@@ -90,9 +92,7 @@ len = input.int(14, "Length")
 // GOOD input
 rsi_len = input.int(14, "RSI Period",
      minval=2, maxval=100,
-     tooltip="Number of bars for RSI calculation. " +
-             "Lower values = more sensitive but more noise. " +
-             "Higher values = smoother but slower to react.",
+     tooltip="Number of bars for RSI calculation. Lower values = more sensitive but more noise. Higher values = smoother but slower to react.",
      group="Signal Settings")
 ```
 
