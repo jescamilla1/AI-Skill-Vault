@@ -34,7 +34,7 @@ indicator("Harmonic Pattern Detection, Prediction, and Backtesting System","Exio
 //   - D/PRZ confluence (w_d): proximity of D to the PRZ levels
 // ============================================================
 
-import BagHoldingCat_ftw/TA/7 as ta
+import BagHoldingCat_ftw/TA/9 as ta
 import reees/Draw/27 as draw
 import reees/Utilities/5 as util
 import reees/Pattern/1 as p
@@ -62,6 +62,9 @@ var batOn        = input.bool(true, "Bat:          ", inline="bat", group="02. P
 var bflyOn       = input.bool(true, "Butterfly:  ", inline="bfly", group="02. Pattern Types")
 var crabOn       = input.bool(true, "Crab:        ", inline="crab", group="02. Pattern Types")
 var sharkOn      = input.bool(true, "Shark:       ", inline="shark", group="02. Pattern Types")
+var altBatOn     = input.bool(true, "Alt Bat:     ", inline="altbat", group="02. Pattern Types")
+var deepBflyOn   = input.bool(true, "Deep Bfly:   ", inline="dbfly", group="02. Pattern Types")
+var deepCrabOn   = input.bool(true, "Deep Crab:   ", inline="dcrab", group="02. Pattern Types")
 
 // 03. Entry & Risk
 var e_afterC     = input.bool(true, "Enter after Point C", group="03. Entry & Risk")
@@ -111,6 +114,9 @@ var c_bat_base   = input.color(#00E676, "Bat", group="06. Colors")
 var c_bfly_base  = input.color(#AA00FF, "Butterfly", group="06. Colors")
 var c_crab_base  = input.color(#00BCD4, "Crab", group="06. Colors")
 var c_shark_base = input.color(#F48FB1, "Shark", group="06. Colors")
+var c_altbat_base = input.color(#8BC34A, "Alt Bat", group="06. Colors")
+var c_dbfly_base  = input.color(#7E57C2, "Deep Butterfly", group="06. Colors")
+var c_dcrab_base  = input.color(#26C6DA, "Deep Crab", group="06. Colors")
 
 var l_txt       = input.color(color.new(color.white, 20), "Label text", group="06. Colors")
 var c_leg_exact = input.color(color.new(#00E676, 25), "Leg exact", inline="legacc", group="06. Colors")
@@ -146,6 +152,12 @@ if barstate.isfirst
         array.push(includeTps,4)
     if sharkOn
         array.push(includeTps,5)
+    if altBatOn
+        array.push(includeTps,7)
+    if deepBflyOn
+        array.push(includeTps,8)
+    if deepCrabOn
+        array.push(includeTps,9)
 
     array.push(bullBearBase, c_bull_base)
     array.push(bullBearBase, c_bear_base)
@@ -154,6 +166,9 @@ if barstate.isfirst
     array.push(patternBase, c_bfly_base)
     array.push(patternBase, c_crab_base)
     array.push(patternBase, c_shark_base)
+    array.push(patternBase, c_altbat_base)
+    array.push(patternBase, c_dbfly_base)
+    array.push(patternBase, c_dcrab_base)
 
     canonEntryMode := switch e_lvlc
         "Near confluent PRZ" => "Nearest confluent PRZ level"
@@ -179,11 +194,17 @@ var h.xabcd_harmonic[] bullBat   = array.new<h.xabcd_harmonic>()
 var h.xabcd_harmonic[] bullBfly  = array.new<h.xabcd_harmonic>()
 var h.xabcd_harmonic[] bullCrab  = array.new<h.xabcd_harmonic>()
 var h.xabcd_harmonic[] bullShark = array.new<h.xabcd_harmonic>()
+var h.xabcd_harmonic[] bullAltBat = array.new<h.xabcd_harmonic>()
+var h.xabcd_harmonic[] bullDeepBfly = array.new<h.xabcd_harmonic>()
+var h.xabcd_harmonic[] bullDeepCrab = array.new<h.xabcd_harmonic>()
 var h.xabcd_harmonic[] bearGart  = array.new<h.xabcd_harmonic>()
 var h.xabcd_harmonic[] bearBat   = array.new<h.xabcd_harmonic>()
 var h.xabcd_harmonic[] bearBfly  = array.new<h.xabcd_harmonic>()
 var h.xabcd_harmonic[] bearCrab  = array.new<h.xabcd_harmonic>()
 var h.xabcd_harmonic[] bearShark = array.new<h.xabcd_harmonic>()
+var h.xabcd_harmonic[] bearAltBat = array.new<h.xabcd_harmonic>()
+var h.xabcd_harmonic[] bearDeepBfly = array.new<h.xabcd_harmonic>()
+var h.xabcd_harmonic[] bearDeepCrab = array.new<h.xabcd_harmonic>()
 
 var h.xabcd_harmonic[] pending           = array.new<h.xabcd_harmonic>()
 var label[]            fullIpL           = array.new_label(0)
@@ -196,6 +217,8 @@ var label[]            legMidLabels      = array.new_label(0)
 var string[] hiddenClusterPids = array.new_string(0)
 var string[] customFillKeys = array.new_string(0)
 var linefill[] customFills = array.new_linefill(0)
+var string[] customLineKeys = array.new_string(0)
+var line[] customLines = array.new_line(0)
 var string[] pidCache = array.new_string(0)
 
 var int[]   accPatternCount = array.new_int(0)
@@ -344,6 +367,27 @@ drawLegMidLabel(string pid, string legKey, string txt, int x1, float y1, int x2,
 customFillKey(string pid, int legIdx) =>
     pid + "|F|" + str.tostring(legIdx)
 
+customLineKey(string pid, int legIdx) =>
+    pid + "|L|" + str.tostring(legIdx)
+
+clearCustomLinesForPid(string pid) =>
+    n = array.size(customLineKeys)
+    if n > 0
+        pref = pid + "|L|"
+        for i=0 to n-1
+            idx = n-1-i
+            k = array.get(customLineKeys, idx)
+            if str.startswith(k, pref)
+                ln = array.remove(customLines, idx)
+                array.remove(customLineKeys, idx)
+                line.delete(ln)
+    0
+
+trackCustomLine(string pid, int legIdx, line ln) =>
+    array.push(customLineKeys, customLineKey(pid, legIdx))
+    array.push(customLines, ln)
+    0
+
 clearCustomFillsForPid(string pid) =>
     n = array.size(customFillKeys)
     if n > 0
@@ -426,7 +470,16 @@ safeArrayColor(color[] a, int idx, color fallback) =>
     idx >= 0 and idx < array.size(a) ? array.get(a, idx) : fallback
 
 patColors(int tp, bool bull) =>
-    perPatternBase = safeArrayColor(patternBase, tp - 1, c_gart_base)
+    perPatternBase = switch tp
+        1 => c_gart_base
+        2 => c_bat_base
+        3 => c_bfly_base
+        4 => c_crab_base
+        5 => c_shark_base
+        7 => c_altbat_base
+        8 => c_dbfly_base
+        9 => c_dcrab_base
+        => c_gart_base
     bullBear = bull ? safeArrayColor(bullBearBase, 0, c_bull_base) : safeArrayColor(bullBearBase, 1, c_bear_base)
     base = use_per_pattern ? perPatternBase : bullBear
     txtBase = use_per_pattern ? base : color.white
@@ -457,6 +510,9 @@ storageFor(isBull, tp) =>
         3 => isBull ? bullBfly  : bearBfly
         4 => isBull ? bullCrab  : bearCrab
         5 => isBull ? bullShark : bearShark
+        7 => isBull ? bullAltBat : bearAltBat
+        8 => isBull ? bullDeepBfly : bearDeepBfly
+        9 => isBull ? bullDeepCrab : bearDeepCrab
         => array.new<h.xabcd_harmonic>()
 
 // Range-based target model:
@@ -641,11 +697,122 @@ success(p) =>
     else
         [p.t1Hit,p.t2Hit,p.sHit,na,na,na,na]
 
-alertMsg(p) =>
-    if not h.is_complete(p)
-        "Potential " + h.get_name(p) + " is forming."
+harmonicSymbol(int tp) =>
+    switch tp
+        1 => "Ɠ"
+        2 => "🦇"
+        3 => "🦋"
+        4 => "🦀"
+        5 => "🦈"
+        7 => "AB"
+        8 => "DBF"
+        9 => "DCR"
+        => "?"
+
+harmonicName(int tp) =>
+    switch tp
+        1 => "Gartley"
+        2 => "Bat"
+        3 => "Butterfly"
+        4 => "Crab"
+        5 => "Shark"
+        7 => "Alt Bat"
+        8 => "Deep Butterfly"
+        9 => "Deep Crab"
+        => "Unknown"
+
+proxyTypeForInit(int tp) =>
+    tp == 7 ? 2 : tp == 8 ? 3 : tp == 9 ? 4 : tp
+
+applyTypeRemap(h.xabcd_harmonic pat, int tp, float xY, float aY, float bY, float cY) =>
+    pat.tp := tp
+    [bc_u, bc_l, xa_u, xa_l] = ta.harmonic_xabcd_prz(tp, xY, aY, bY, cY)
+    pat.prz_bN := bc_u
+    pat.prz_bF := bc_l
+    pat.prz_xN := xa_u
+    pat.prz_xF := xa_l
+    pat
+
+initPatternCompat(int xX,float xY,int aX,float aY,int bX,float bY,int cX,float cY,int dX,float dY,int tp) =>
+    pat = h.init(xX,xY,aX,aY,bX,bY,cX,cY,dX,dY,params,tp)
+    if na(pat) and (tp == 7 or tp == 8 or tp == 9)
+        proxyTp = proxyTypeForInit(tp)
+        fallback = h.init(xX,xY,aX,aY,bX,bY,cX,cY,dX,dY,params,proxyTp)
+        if not na(fallback)
+            pat := applyTypeRemap(fallback, tp, xY, aY, bY, cY)
+            debugLog("Compat init for type " + str.tostring(tp), cX, cY, aY > xY)
+    pat
+
+drawTpForCompat(int tp) =>
+    proxyTypeForInit(tp)
+
+isManualCompatType(int tp) =>
+    tp == 7 or tp == 8 or tp == 9
+
+drawManualCompatPattern(h.xabcd_harmonic pat, color lnColor) =>
+    clearCustomLinesForPid(pat.pid)
+    l0 = line.new(pat.x.x, pat.x.y, pat.a.x, pat.a.y, color=lnColor, width=2)
+    l1 = line.new(pat.a.x, pat.a.y, pat.b.x, pat.b.y, color=lnColor, width=2)
+    l2 = line.new(pat.b.x, pat.b.y, pat.c.x, pat.c.y, color=lnColor, width=2)
+    trackCustomLine(pat.pid, 0, l0)
+    trackCustomLine(pat.pid, 1, l1)
+    trackCustomLine(pat.pid, 2, l2)
+    if not na(pat.d.x) and not na(pat.d.y)
+        l3 = line.new(pat.c.x, pat.c.y, pat.d.x, pat.d.y, color=lnColor, width=2)
+        if pat.invalid_d
+            line.set_style(l3, line.style_dashed)
+        trackCustomLine(pat.pid, 3, l3)
+    0
+
+drawPatternCompat(h.xabcd_harmonic pat, color lnColor) =>
+    if isManualCompatType(pat.tp)
+        drawManualCompatPattern(pat, lnColor)
     else
-        h.get_name(p) + " has formed."
+        origTp = pat.tp
+        drawTp = drawTpForCompat(origTp)
+        if drawTp != origTp
+            pat.tp := drawTp
+            h.draw_pattern(pat, lnColor)
+            pat.tp := origTp
+        else
+            h.draw_pattern(pat, lnColor)
+    0
+
+erasePatternCompat(h.xabcd_harmonic pat) =>
+    clearCustomLinesForPid(pat.pid)
+    if isManualCompatType(pat.tp)
+        0
+    else
+        origTp = pat.tp
+        drawTp = drawTpForCompat(origTp)
+        if drawTp != origTp
+            pat.tp := drawTp
+            h.erase_pattern(pat)
+            pat.tp := origTp
+        else
+            h.erase_pattern(pat)
+    0
+
+drawPrzLevelsCompat(h.xabcd_harmonic pat, color lnColor) =>
+    if isManualCompatType(pat.tp)
+        [na, na]
+    else
+        origTp = pat.tp
+        drawTp = drawTpForCompat(origTp)
+        if drawTp != origTp
+            pat.tp := drawTp
+            [ln, lf] = h.draw_prz_levels(pat, lnColor)
+            pat.tp := origTp
+            [ln, lf]
+        else
+            h.draw_prz_levels(pat, lnColor)
+
+alertMsg(p) =>
+    nm = harmonicName(p.tp)
+    if not h.is_complete(p)
+        "Potential " + nm + " is forming."
+    else
+        nm + " has formed."
 
 // clearProjectionOverlay: clears all drawing objects for the in-progress projection overlay.
 
@@ -744,7 +911,7 @@ tooltipText(p) =>
     bdQ  = legQ(p.re_bd)
     xdQ  = legQ(p.re_xd)
     compact = tt_layout == "Compact"
-    string tip = h.get_name(p) + (compact ? "" : successTxt(p)) + "\n\n"
+    string tip = harmonicName(p.tp) + (compact ? "" : successTxt(p)) + "\n\n"
     tip += "Score: " + str.tostring(p.score*100,"#.##") + (not h.is_complete(p) ? "  [incomplete]" : "") + "\n\n"
 
     if tt_show_leg_err
@@ -929,15 +1096,15 @@ collectDirectionTypePatterns(bool isBull, int tp) =>
     all
 
 tablePatternBadge(int tp) =>
-    var string[] badges = array.from("GRT", "BAT", "BFL", "CRB", "SHK")
+    var string[] badges = array.from("GRT", "BAT", "BFL", "CRB", "SHK", "?", "ABT", "DBF", "DCR")
     idx = tp - 1
-    idx >= 0 and idx < array.size(badges) ? array.get(badges, idx) : "SHK"
+    idx >= 0 and idx < array.size(badges) ? array.get(badges, idx) : "?"
 
 labelText(p,stateTxt) =>
-    h.get_symbol(p.tp) + " " + str.tostring(math.round(p.score,3)*100) + stateTxt
+    harmonicSymbol(p.tp) + " " + str.tostring(math.round(p.score,3)*100) + stateTxt
 
 incompleteLabelText(p) =>
-    "Potential " + h.get_symbol(p.tp) + " (" + str.tostring(p.score*100,"#.##") + ")"
+    "Potential " + harmonicSymbol(p.tp) + " (" + str.tostring(p.score*100,"#.##") + ")"
 
 // refreshPatternLabel: single label refresh path for completed/pending patterns.
 
@@ -949,7 +1116,7 @@ refreshPatternLabel(h.xabcd_harmonic pat) =>
 // erasePattern: removes all library-drawn objects for a pattern (lines, fills, label).
 
 erasePattern(p) =>
-    h.erase_pattern(p)
+    erasePatternCompat(p)
     h.erase_label(p)
     clearCustomFillsForPid(p.pid)
     removeLegMidLabels(p.pid)
@@ -972,17 +1139,20 @@ drawPattern(p) =>
         str_label = h.is_complete(p) ? labelText(p,stateTxt) : incompleteLabelText(p)
         tt = tooltipText(p)
         
-        h.draw_pattern(p, col.line)
-        if p.invalid_d
+        drawPatternCompat(p, col.line)
+        if p.invalid_d and array.size(p.pLines) > 3
             line.set_style(array.get(p.pLines,3),line.style_dashed)
         h.erase_label(p)
         h.draw_label(p, col.tt, l_txt, str_label, tt)
         drawLegMidLabels(p, col)
-        drawFills(p, col)
+        if not isManualCompatType(p.tp)
+            drawFills(p, col)
         if show_inc_prz and not h.is_complete(p)
-            [ln, lf] = h.draw_prz_levels(p, col.line)
-            array.push(p.pLines, ln)
-            array.push(p.pLines, lf)
+            [ln, lf] = drawPrzLevelsCompat(p, col.line)
+            if not na(ln)
+                array.push(p.pLines, ln)
+            if not na(lf)
+                array.push(p.pLines, lf)
     else
         removeLegMidLabels(p.pid)
 
@@ -998,7 +1168,7 @@ applyClusterVisibility(h.xabcd_harmonic p, bool shouldShow) =>
             setClusterHidden(p.pid, true)
 
 refreshDirectionCluster(bool isBull) =>
-    for tp=1 to 5
+    for tp=1 to 9
         group = collectDirectionTypePatterns(isBull, tp)
         if array.size(group) > 0
             for i=0 to array.size(group)-1
@@ -1075,9 +1245,7 @@ isNotDuplicate(p) =>
 // isBull named to avoid shadowing the 't' library alias — all library calls
 // inside this function route through outer-scope helpers that resolve 't' correctly.
 
-storeIncomplete(isBull,h1,h2,h3,h4,h5,h6,xX,xY,aX,aY,bX,bY,cX,cY) =>
-    btps = array.from(h1,h2,h3,h4,h5,h6)
-    tps = util.boolToIntArr(btps)
+storeIncomplete(isBull, int[] tps, xX,xY,aX,aY,bX,bY,cX,cY) =>
 
     int dX = na
     float dY = na
@@ -1102,10 +1270,9 @@ storeIncomplete(isBull,h1,h2,h3,h4,h5,h6,xX,xY,aX,aY,bX,bY,cX,cY) =>
                 exists := true
                 break
     if exists == false
-        for tpe in tps
-            tp = tpe+1
+        for tp in tps
             if exists == false
-                pat = h.init(xX,xY,aX,aY,bX,bY,cX,cY,dX,dY,params,tp)
+                pat = initPatternCompat(xX,xY,aX,aY,bX,bY,cX,cY,dX,dY,tp)
                 if not na(pat)
                     [_,eC,_] = entry(pat)
 
@@ -1114,7 +1281,7 @@ storeIncomplete(isBull,h1,h2,h3,h4,h5,h6,xX,xY,aX,aY,bX,bY,cX,cY) =>
                         if isNotDuplicate(pat)
                             array.push(incompletePatterns,pat)
                             pidCacheAdd(pat.pid)
-                            debugLog("New incomplete " + h.get_symbol(pat.tp), cX, cY, isBull)
+                            debugLog("New incomplete " + ta.harmonic_xabcd_symbol(pat.tp), cX, cY, isBull)
                             if incOn and (not na(eC) or not e_afterC)
                                 drawPattern(pat)
                             if a_type == "Potential patterns" or a_type == "Both"
@@ -1179,7 +1346,11 @@ finalizePattern(p,force=false) =>
                     lasteH := true
                     if force==false
                         last.invalid_d := false
-                    h.init(last.x.x,last.x.y,last.a.x,last.a.y,last.b.x,last.b.y,last.c.x,last.c.y,p.d.x,p.d.y,params,last.tp,last)
+                    initTp = last.tp
+                    proxyTp = proxyTypeForInit(initTp)
+                    h.init(last.x.x,last.x.y,last.a.x,last.a.y,last.b.x,last.b.y,last.c.x,last.c.y,p.d.x,p.d.y,params,proxyTp,last)
+                    if initTp != proxyTp
+                        applyTypeRemap(last, initTp, last.x.y, last.a.y, last.b.y, last.c.y)
                     [upper,lower] = h.prz_range(last)
                     last.stop := ta.harmonic_xabcd_stop(canonStopMode,stopPct,last.bull,last.x.y,last.d.y,upper,lower,last.t1,last.e.y)
                     drawPattern(last)
@@ -1559,6 +1730,9 @@ statsSignature() =>
     sig += array.size(bullBfly) * 11 + array.size(bearBfly) * 13
     sig += array.size(bullCrab) * 17 + array.size(bearCrab) * 19
     sig += array.size(bullShark) * 23 + array.size(bearShark) * 29
+    sig += array.size(bullAltBat) * 61 + array.size(bearAltBat) * 67
+    sig += array.size(bullDeepBfly) * 71 + array.size(bearDeepBfly) * 73
+    sig += array.size(bullDeepCrab) * 79 + array.size(bearDeepCrab) * 83
     sig += array.size(incompletePatterns) * 31
     sig += array.size(pending) * 37
     if array.size(pending) > 0
@@ -1590,37 +1764,18 @@ reconcileStatsView() =>
 // correct direction), and BD/XD ratio via t.test_cd().
 
 isValidPointD(p,dX,dY) =>
-
-    var bool[] _ptypes1 = array.from(true,false,false,false,false,false)
-    var bool[] _ptypes2 = array.from(false,true,false,false,false,false)
-    var bool[] _ptypes3 = array.from(false,false,true,false,false,false)
-    var bool[] _ptypes4 = array.from(false,false,false,true,false,false)
-    var bool[] _ptypes5 = array.from(false,false,false,false,true,false)
-
     if dX <= (incTLimit(p.x.x,p.c.x) + p.c.x)
         if ta.pat_xabcd_testSym(p.a.x-p.x.x, p.b.x-p.a.x, p.c.x-p.b.x, dX-p.c.x, pctAsym)
             [highBound, lowBound] = rangeBoundsFromC(p.c.x, 1)
             if ((p.bull and dY <= lowBound) or (p.bull==false and dY >= highBound)) and ((p.bull and p.c.y >= highBound) or (p.bull==false and p.c.y <= lowBound))
-                xa = math.abs(p.x.y - p.a.y)
-                bc = math.abs(p.b.y - p.c.y)
-                cd = math.abs(p.c.y - dY)
-                ad = math.abs(p.a.y - dY)
-                xc = math.abs(p.x.y - p.c.y)
                 tp = p.tp
-                if tp < 1 or tp > 5
+                if tp < 1
                     debugLog("Skip unknown pattern type: " + str.tostring(tp), dX, dY, p.bull)
                     false
                 else
-                    p_types = switch tp
-                        1 => _ptypes1
-                        2 => _ptypes2
-                        3 => _ptypes3
-                        4 => _ptypes4
-                        => _ptypes5
-                    [t1,t2,t3,t4,t5,t6] = ta.test_cd(cd,bc,xa,xc,ad,pctErr,p_types)
-                    cdOk = t1 or t2 or t3 or t4 or t5 or t6
+                    cdOk = ta.harmonic_xabcd_validateByType(tp, p.x.x,p.x.y,p.a.x,p.a.y,p.b.x,p.b.y,p.c.x,p.c.y,dX,dY,pctErr,pctAsym)
                     if cdOk
-                        cand = h.init(p.x.x, p.x.y, p.a.x, p.a.y, p.b.x, p.b.y, p.c.x, p.c.y, dX, dY, params, p.tp)
+                        cand = initPatternCompat(p.x.x, p.x.y, p.a.x, p.a.y, p.b.x, p.b.y, p.c.x, p.c.y, dX, dY, p.tp)
                         not na(cand) and patternRatiosPassBand(cand, true)
                     else
                         false
@@ -1661,7 +1816,7 @@ queueDetectedCandidate(h.xabcd_harmonic[] candidates, int[] qx, int[] qa, int[] 
 
 tryQueuePointD(h.xabcd_harmonic src, int dX, float dY, h.xabcd_harmonic[] candidates, int[] qx, int[] qa, int[] qb, int[] qc, int[] qtp, bool[] qbull) =>
     if isValidPointD(src, dX, dY)
-        cand = h.init(src.x.x, src.x.y, src.a.x, src.a.y, src.b.x, src.b.y, src.c.x, src.c.y, dX, dY, params, src.tp)
+        cand = initPatternCompat(src.x.x, src.x.y, src.a.x, src.a.y, src.b.x, src.b.y, src.c.x, src.c.y, dX, dY, src.tp)
         if not na(cand)
             queueDetectedCandidate(candidates, qx, qa, qb, qc, qtp, qbull, cand)
 
@@ -1717,9 +1872,12 @@ find_pattern(pl,isBull=true) =>
     if ((isBull and bullOn) or (isBull==false and bearOn))
         [f,xX,xY,aX,aY,bX,bY,cX,cY] = ta.pat_xabcdIncomplete(isBull,pl)
         if f and (i_lb==false or bar_index >= last_bar_index-i_lbn)
-            [isValid,h1,h2,h3,h4,h5,h6] = ta.harmonic_xabcd_validateIncomplete(xX,xY,aX,aY,bX,bY,cX,cY,pctErr,pctAsym,gartOn,batOn,bflyOn,crabOn,sharkOn,false)
-            if isValid
-                storeIncomplete(isBull,h1,h2,h3,h4,h5,h6,xX,xY,aX,aY,bX,bY,cX,cY)
+            int[] matchedTps = array.new_int(0)
+            for tp in includeTps
+                if ta.harmonic_xabcd_validateIncompleteByType(tp,xX,xY,aX,aY,bX,bY,cX,cY,pctErr,pctAsym)
+                    array.push(matchedTps,tp)
+            if array.size(matchedTps) > 0
+                storeIncomplete(isBull,matchedTps,xX,xY,aX,aY,bX,bY,cX,cY)
 
 effectiveMinPl() =>
     // Precedence: pivot_mode override > detection_preset > manual min_pl.
