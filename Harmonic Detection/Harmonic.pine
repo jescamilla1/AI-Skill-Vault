@@ -42,19 +42,19 @@ import BagHoldingCat_ftw/Obj_XABCD_Harmonic/1 as h
 
 // ─── INPUTS ────────────────────────────────────────────────
 // 01. Detection
-var t_b          = input.int(1, "Pattern validation length (# trailing bars)", minval=1, group="01. Detection", tooltip="The number of bars after pivot point D (or point C for incomplete patterns) before a pattern is considered valid. This affects how soon patterns will be drawn and entries can be placed.")
+var t_b          = input.int(1, "Pattern validation length (# trailing bars)", minval=1, group="01. Detection", tooltip="Bars to confirm pivot D (or C for incomplete). Higher = slower, cleaner signals.")
 var pctErr       = input.float(15.0, "Allowed fib ratio error %", step=1.0, minval=0.0, maxval=50.0, group="01. Detection", inline="err")
-var fib_tol_band = input.string("10%", "Fib band", options=["5%","10%"], group="01. Detection", inline="err", tooltip="Require each detected leg ratio to be within this error band of the nearest supported fib level.")
-var w_e          = input.float(4.0, "Weight", step=.1, minval=0.0, group="01. Detection", inline="err", tooltip="A leg is considered valid if its retracement (ΔY) ratio is within this % of the defined harmonic ratio. Weight determines the weight of retracement % error in the total score calculation for a pattern.")
-var pctAsym      = input.float(2000.0, "Allowed leg length asymmetry %", step=1.0, minval=0.0, maxval=5000.0, group="01. Detection", tooltip="A leg is considered valid if its length (ΔX/number of bars) is within this % of the average length of the other legs in the pattern.")
-var tLimitMult   = input.float(3, "Pattern time limit", group="01. Detection", step=.1, minval=.1, tooltip="Time limit for a completed pattern to reach the projected targets. Value is specified in terms of total pattern length (point X to point D), i.e. a value of 1 will allow one pattern length to elapse before the pattern times out and can no longer be considered successful. Patterns that time out will not count towards the success rates in the results table.")
-var pendingMaxBars = input.int(0, "Hard pending cap bars (0=off)", minval=0, maxval=5000, group="01. Detection", tooltip="Optional absolute cap on bars a completed pattern can remain pending after D. 0 disables the cap. When set, effective pending timeout is min(pattern time limit, this cap).")
-var incompleteMaxBars = input.int(0, "Hard incomplete cap bars (0=off)", minval=0, maxval=5000, group="01. Detection", tooltip="Optional absolute cap on bars an incomplete pattern can wait for D after C. 0 disables the cap. When set, effective incomplete timeout is min(asymmetry-derived limit, this cap).")
-var detection_preset = input.string("Custom", "Detection preset", options=["Custom","Scalp","Swing","Macro+"], group="01. Detection", tooltip="Preset bundle for key detection knobs. Custom keeps manual values.")
-var min_pl       = input.int(8, "Min pivot length", minval=3, maxval=20, group="01. Detection", tooltip="Minimum bars on each side of a pivot. Lower values detect more micro structures; higher values focus on macro swings.")
-var pivot_mode   = input.string("Custom", "Pivot mode", options=["Custom","Balanced (8)","Macro (15)"], group="01. Detection", tooltip="Choose a one-of-three pivot presets. Custom uses Min pivot length; Balanced and Macro lock to 8 and 15.")
-var w_p          = input.float(2.0, "Weight of PRZ level confluence", step=.1, minval=0.0, group="01. Detection", tooltip="Weight applied to Potential Reversal Zone fib level confluence in the total score calculation for a pattern. The closer together the two closest PRZ fib levels are, the higher the score.")
-var w_d          = input.float(3.0, "Weight of point D / PRZ level confluence", step=.1, minval=0.0, group="01. Detection", tooltip="Weight applied to the confluence of point D with the Potential Reversal Zone levels in the total score calculation for a pattern. The closer point D is to either of the two confluent PRZ fib levels, the higher the score.")
+var fib_tol_band = input.string("10%", "Fib band", options=["5%","10%"], group="01. Detection", inline="err", tooltip="Required distance from nearest supported fib ratio.")
+var w_e          = input.float(4.0, "Weight", step=.1, minval=0.0, group="01. Detection", inline="err", tooltip="Score weight for leg fib-ratio accuracy.")
+var pctAsym      = input.float(2000.0, "Allowed leg length asymmetry %", step=1.0, minval=0.0, maxval=5000.0, group="01. Detection", tooltip="Max leg-duration imbalance allowed vs other legs.")
+var tLimitMult   = input.float(3, "Pattern time limit", group="01. Detection", step=.1, minval=.1, tooltip="Target timeout in pattern lengths (X->D). Timed-out patterns are excluded from stats.")
+var pendingMaxBars = input.int(0, "Hard pending cap bars (0=off)", minval=0, maxval=5000, group="01. Detection", tooltip="Absolute pending cap after D. 0 disables. Effective cap is min(dynamic, cap).")
+var incompleteMaxBars = input.int(0, "Hard incomplete cap bars (0=off)", minval=0, maxval=5000, group="01. Detection", tooltip="Absolute incomplete wait cap after C. 0 disables. Effective cap is min(dynamic, cap).")
+var detection_preset = input.string("Custom", "Detection preset", options=["Custom","Scalp","Swing","Macro+"], group="01. Detection", tooltip="Preset bundle for detection settings. Custom keeps manual values.")
+var min_pl       = input.int(8, "Min pivot length", minval=3, maxval=20, group="01. Detection", tooltip="Minimum bars per pivot side. Lower = more micro patterns.")
+var pivot_mode   = input.string("Custom", "Pivot mode", options=["Custom","Balanced (8)","Macro (15)"], group="01. Detection", tooltip="Pivot preset override. Custom uses Min pivot length.")
+var w_p          = input.float(2.0, "Weight of PRZ level confluence", step=.1, minval=0.0, group="01. Detection", tooltip="Score weight for PRZ-level confluence.")
+var w_d          = input.float(3.0, "Weight of point D / PRZ level confluence", step=.1, minval=0.0, group="01. Detection", tooltip="Score weight for D proximity to PRZ.")
 
 // 02. Pattern Types
 var gartOn       = input.bool(true, "Gartley:    ", inline="gart", group="02. Pattern Types")
@@ -65,84 +65,52 @@ var sharkOn      = input.bool(true, "Shark:       ", inline="shark", group="02. 
 
 // 03. Entry & Risk
 var e_afterC     = input.bool(true, "Enter after Point C", group="03. Entry & Risk")
-var e_lvlc       = input.string("Nearest confluent PRZ level", "       Enter at", options=["Nearest confluent PRZ level","Farthest confluent PRZ level","Between the two confluent PRZ levels","Nearest PRZ level","Farthest PRZ level"], group="03. Entry & Risk")
-var e_aboveC     = input.float(90, "       If score is above", group="03. Entry & Risk", tooltip="A trade will only be entered if the pattern's score is above the specified value. Note that when entering a trade after Point C, we have an incomplete score because we can't yet measure Point D's confluence with the PRZ. Therefore the final pattern score may differ from the incomplete score at the time of entry. Set this to 0 if you wish to enter a trade on every pattern.")
+var e_lvlc       = input.string("Near confluent PRZ", "       Enter at", options=["Near confluent PRZ","Far confluent PRZ","Mid confluent PRZ","Nearest PRZ","Farthest PRZ"], group="03. Entry & Risk")
+var e_aboveC     = input.float(90, "       If score is above", group="03. Entry & Risk", tooltip="Min score for C-entry. 0 allows all.")
 var e_afterD     = input.bool(true, "Enter after Point D", group="03. Entry & Risk")
-var e_lvldPct    = input.float(1.0, "       Enter at limit % away from D", minval=0.0, step=.1, group="03. Entry & Risk", tooltip="Enter the trade after a valid point D has been confirmed, up to the limit of this % away from Point D. E.g. for a bullish pattern (long entry), if this value is set to 5%, an entry will be placed at the best possible price up to 5% above point D. If 'Entry after Point C' is also set, the entry will be at whichever level is reached first. \n\nIf the entry level is not reached, the pattern will not be included in the Success Rate and Return % statistics.")
-var e_aboveD     = input.float(90, "       If score is above", group="03. Entry & Risk", tooltip="A trade will only be entered if the pattern's score is above the specified value. Set this to 0 if you wish to enter a trade on every pattern.")
-var e_tLimit     = input.float(.5, "       Entry window (time limit)", group="03. Entry & Risk", tooltip="Time limit for order entry, specified in pattern lengths (e.g. '0.5' means half the total pattern length). If the time limit expires before the order is filled, it will be cancelled and no trade will be entered for the pattern.")
+var e_lvldPct    = input.float(1.0, "       Enter at limit % away from D", minval=0.0, step=.1, group="03. Entry & Risk", tooltip="Max allowed distance from D for D-entry. If not filled, trade is excluded from stats.")
+var e_aboveD     = input.float(90, "       If score is above", group="03. Entry & Risk", tooltip="Min score for D-entry. 0 allows all.")
+var e_tLimit     = input.float(.5, "       Entry window (time limit)", group="03. Entry & Risk", tooltip="Entry window in pattern lengths. Unfilled entries expire.")
 var stopPct      = input.float(75, "Stop", step=1.0, minval=0.0, group="03. Entry & Risk", inline="stop")
-var stopB        = input.string("% of distance to target 1, beyond entry", "", options=["% beyond X or D","% beyond Farthest PRZ level","% beyond Point D","% beyond entry","% of distance to target 1, beyond entry"], group="03. Entry & Risk", inline="stop", tooltip="Set stop-loss % beyond the specified level. If price reaches this level before the first target is hit, or before the target timeout period expires, the pattern will be considered a failure.\n\n'% beyond X or D' = percentage below Point X or Point D, whichever is farther from entry\n\n'% of distance to target 1' = a percentage of the distance from the entry level to target 1. \n\n'% beyond entry' = percentage above/below the entry level. \n\n'% beyond Point D' = percentage above/below Point D. \n\n'beyond Farthest PRZ level' = percentage above/below the Farthest PRZ level")
+var stopB        = input.string("% to T1 beyond entry", "", options=["% beyond X/D","% beyond far PRZ","% beyond D","% beyond entry","% to T1 beyond entry"], group="03. Entry & Risk", inline="stop", tooltip="Stop reference mode for stopPct.")
+var same_bar_resolution = input.string("Stop first (conservative)", "       Same-bar T/S policy", options=["Stop first (conservative)","Target first (optimistic)","Leave unresolved"], group="03. Entry & Risk", tooltip="How to resolve same-bar stop+target conflicts.")
+var same_bar_gap_hint = input.bool(true, "       Gap hint on same-bar conflict", group="03. Entry & Risk", tooltip="Use gap direction as tie-break before same-bar policy.")
 
 // 04. Visibility & Filters
 var bullOn                    = input.bool(true, "Bullish", inline="type_b", group="04. Visibility & Filters")
 var bearOn                    = input.bool(true, "Bearish", inline="type_b", group="04. Visibility & Filters")
 var incOn                     = input.bool(true, "Potential/Incomplete", inline="type_b", group="04. Visibility & Filters")
 var show_inc_prz              = input.bool(true, "Show PRZ levels on incomplete", inline="type_b", group="04. Visibility & Filters", tooltip="Show the BC Potential Reversal Zone target levels on incomplete (XABC) patterns.")
-var hsOn                      = input.bool(true, "Only high scoring", inline="type_b", group="04. Visibility & Filters", tooltip="Only show patterns that meet your 'If score is above' entry requirement.")
+var hsOn                      = input.bool(true, "Only high scoring", inline="type_b", group="04. Visibility & Filters", tooltip="Show only patterns passing score entry threshold.")
 var i_lb                      = input.bool(false, "Lookback bars", group="04. Visibility & Filters", inline="h")
-var i_lbn                     = input.int(800, "", group="04. Visibility & Filters", inline="h", minval=50, maxval=5000, tooltip="Maximum number of bars back to search for patterns. Higher values find more historical patterns but increase load time.")
-var show_stats                = input.bool(true, "Show stats table", group="04. Visibility & Filters", tooltip="Toggle the pattern statistics table.")
-var show_fib_table            = input.bool(false, "Show fib tolerance table", group="04. Visibility & Filters", tooltip="Displays an on-chart reference table showing fib ratio ranges at 5% and 10% tolerance.")
-var perf_gate_ui              = input.bool(false, "Performance gate (UI updates)", group="04. Visibility & Filters", tooltip="When enabled, heavy last-bar visual updates are skipped unless needed by active features.")
-var cluster_ui_filter         = input.bool(false, "Cluster filter (display only)", group="04. Visibility & Filters", tooltip="When enabled, only the highest-confidence pattern is shown in overlapping same-direction zones. Stats and trade tracking are unchanged.")
-var cluster_hist_completed_only = input.bool(true, "Historical: completed only", group="04. Visibility & Filters", tooltip="When cluster filtering is enabled, historical bars only keep completed patterns as cluster candidates.")
-var cluster_d_window          = input.int(25, "Cluster time window (bars)", minval=1, maxval=500, group="04. Visibility & Filters", tooltip="Maximum distance between pattern D points (or C for incomplete) to consider patterns part of the same zone.")
-var cluster_price_mult        = input.float(1.0, "Cluster price overlap factor", minval=0.1, maxval=5.0, step=0.1, group="04. Visibility & Filters", tooltip="Two patterns cluster if PRZ ranges overlap or their centers are within this factor times max(PRZ width).")
+var i_lbn                     = input.int(800, "", group="04. Visibility & Filters", inline="h", minval=50, maxval=5000, tooltip="Bars back to scan. Higher finds more history but adds load.")
+var show_stats                = input.bool(true, "Show stats table", group="04. Visibility & Filters", tooltip="Toggle stats table.")
+var show_fib_table            = input.bool(false, "Show fib tolerance table", group="04. Visibility & Filters", tooltip="Show 5%/10% fib reference table.")
+var perf_gate_ui              = input.bool(false, "Performance gate (UI updates)", group="04. Visibility & Filters", tooltip="Skip heavy last-bar UI updates unless needed.")
+var cluster_ui_filter         = input.bool(false, "Cluster filter (display only)", group="04. Visibility & Filters", tooltip="Show only best-confidence pattern in overlapping same-side zones.")
+var cluster_hist_completed_only = input.bool(true, "Historical: completed only", group="04. Visibility & Filters", tooltip="For historical clustering, keep completed patterns only.")
+var cluster_d_window          = input.int(25, "Cluster time window (bars)", minval=1, maxval=500, group="04. Visibility & Filters", tooltip="Max D/C bar distance to treat patterns as same cluster.")
+var cluster_price_mult        = input.float(1.0, "Cluster price overlap factor", minval=0.1, maxval=5.0, step=0.1, group="04. Visibility & Filters", tooltip="Cluster when PRZs overlap or centers are within width factor.")
 
 // 05. Tooltips & Labels
-var show_leg_mid_labels = input.bool(false, "Show leg midpoint labels", group="05. Tooltips & Labels", tooltip="Show XB/AC and (for complete patterns) BD/XD labels at the midpoint of each leg.")
-var leg_lbl_color_by_acc = input.bool(true, "Leg label color by fib accuracy", group="05. Tooltips & Labels", tooltip="Color leg midpoint labels by ratio accuracy: Exact, within 5%, within 10%, or outside 10%.")
-var leg_exact_eps_pct    = input.float(0.10, "Exact tolerance %", minval=0.0, step=0.01, group="05. Tooltips & Labels", tooltip="Error threshold treated as exact for leg label coloring.")
-var tt_layout            = input.string("Full", "Tooltip detail", options=["Compact","Full"], group="05. Tooltips & Labels", tooltip="Compact shows core harmonic details. Full adds status context and optional trade sections.")
+var show_leg_mid_labels = input.bool(false, "Show leg midpoint labels", group="05. Tooltips & Labels", tooltip="Show XB/AC and BD/XD labels at leg midpoints.")
+var leg_lbl_color_by_acc = input.bool(true, "Leg label color by fib accuracy", group="05. Tooltips & Labels", tooltip="Color midpoint labels by fib accuracy band.")
+var leg_exact_eps_pct    = input.float(0.10, "Exact tolerance %", minval=0.0, step=0.01, group="05. Tooltips & Labels", tooltip="Error threshold treated as exact.")
+var tt_layout            = input.string("Full", "Tooltip detail", options=["Compact","Full"], group="05. Tooltips & Labels", tooltip="Compact=core ratios. Full=adds status and trade sections.")
 var tt_show_trade_levels = input.bool(true, "Tooltip: trade levels", group="05. Tooltips & Labels", tooltip="Show Entry/Stop/T1/T2 in pattern tooltips.")
 var tt_show_rr           = input.bool(true, "Tooltip: R:R", group="05. Tooltips & Labels", tooltip="Show R:R for T1/T2 when trade levels are available.")
 var tt_show_leg_err      = input.bool(true, "Tooltip: leg error %", group="05. Tooltips & Labels", tooltip="Show fib error % for XB/AC/BD rows. XD error is intentionally omitted.")
 
 // 06. Colors
-var use_per_pattern = input.bool(true, "Use per-pattern colors", group="06. Colors", tooltip="When enabled, each pattern uses its own color. When disabled, Bullish/Bearish colors apply to all patterns.")
+var use_per_pattern = input.bool(true, "Use per-pattern colors", group="06. Colors", tooltip="On: per-pattern colors. Off: global bull/bear colors.")
 
-var c_bull_line = input.color(color.new(#26A69A, 20), "Bullish", inline="bull", group="06. Colors")
-var c_bull_fill = input.color(color.new(#26A69A, 70), "",        inline="bull", group="06. Colors")
-var c_bull_txt  = input.color(color.new(color.white, 20), "",    inline="bull", group="06. Colors")
-var c_bull_tt   = input.color(color.new(#26A69A, 80), "",        inline="bull", group="06. Colors")
-var c_bull_tgt  = input.color(color.new(#26A69A, 40), "",        inline="bull", group="06. Colors")
-
-var c_bear_line = input.color(color.new(#EF5350, 20), "Bearish", inline="bear", group="06. Colors")
-var c_bear_fill = input.color(color.new(#EF5350, 70), "",        inline="bear", group="06. Colors")
-var c_bear_txt  = input.color(color.new(color.white, 20), "",    inline="bear", group="06. Colors")
-var c_bear_tt   = input.color(color.new(#EF5350, 80), "",        inline="bear", group="06. Colors")
-var c_bear_tgt  = input.color(color.new(#EF5350, 40), "",        inline="bear", group="06. Colors")
-
-var c_gart_line = input.color(color.new(#FFD600, 20), "Gartley",   inline="pc_gart", group="06. Colors")
-var c_gart_fill = input.color(color.new(#FFD600, 70), "",           inline="pc_gart", group="06. Colors")
-var c_gart_txt  = input.color(color.new(#FFD600, 20), "",           inline="pc_gart", group="06. Colors")
-var c_gart_tt   = input.color(color.new(#FFD600, 80), "",           inline="pc_gart", group="06. Colors")
-var c_gart_tgt  = input.color(color.new(#FFD600, 40), "",           inline="pc_gart", group="06. Colors")
-
-var c_bat_line = input.color(color.new(#00E676, 20), "Bat", inline="pc_bat", group="06. Colors")
-var c_bat_fill = input.color(color.new(#00E676, 70), "",    inline="pc_bat", group="06. Colors")
-var c_bat_txt  = input.color(color.new(#00E676, 20), "",    inline="pc_bat", group="06. Colors")
-var c_bat_tt   = input.color(color.new(#00E676, 80), "",    inline="pc_bat", group="06. Colors")
-var c_bat_tgt  = input.color(color.new(#00E676, 40), "",    inline="pc_bat", group="06. Colors")
-
-var c_bfly_line = input.color(color.new(#AA00FF, 20), "Butterfly", inline="pc_bfly", group="06. Colors")
-var c_bfly_fill = input.color(color.new(#AA00FF, 70), "",          inline="pc_bfly", group="06. Colors")
-var c_bfly_txt  = input.color(color.new(#AA00FF, 20), "",          inline="pc_bfly", group="06. Colors")
-var c_bfly_tt   = input.color(color.new(#AA00FF, 80), "",          inline="pc_bfly", group="06. Colors")
-var c_bfly_tgt  = input.color(color.new(#AA00FF, 40), "",          inline="pc_bfly", group="06. Colors")
-
-var c_crab_line = input.color(color.new(#00BCD4, 20), "Crab", inline="pc_crab", group="06. Colors")
-var c_crab_fill = input.color(color.new(#00BCD4, 70), "",    inline="pc_crab", group="06. Colors")
-var c_crab_txt  = input.color(color.new(#00BCD4, 20), "",    inline="pc_crab", group="06. Colors")
-var c_crab_tt   = input.color(color.new(#00BCD4, 80), "",    inline="pc_crab", group="06. Colors")
-var c_crab_tgt  = input.color(color.new(#00BCD4, 40), "",    inline="pc_crab", group="06. Colors")
-
-var c_shark_line = input.color(color.new(#F48FB1, 20), "Shark", inline="pc_shrk", group="06. Colors")
-var c_shark_fill = input.color(color.new(#F48FB1, 70), "",      inline="pc_shrk", group="06. Colors")
-var c_shark_txt  = input.color(color.new(#F48FB1, 20), "",      inline="pc_shrk", group="06. Colors")
-var c_shark_tt   = input.color(color.new(#F48FB1, 80), "",      inline="pc_shrk", group="06. Colors")
-var c_shark_tgt  = input.color(color.new(#F48FB1, 40), "",      inline="pc_shrk", group="06. Colors")
+var c_bull_base  = input.color(#26A69A, "Bullish", group="06. Colors")
+var c_bear_base  = input.color(#EF5350, "Bearish", group="06. Colors")
+var c_gart_base  = input.color(#FFD600, "Gartley", group="06. Colors")
+var c_bat_base   = input.color(#00E676, "Bat", group="06. Colors")
+var c_bfly_base  = input.color(#AA00FF, "Butterfly", group="06. Colors")
+var c_crab_base  = input.color(#00BCD4, "Crab", group="06. Colors")
+var c_shark_base = input.color(#F48FB1, "Shark", group="06. Colors")
 
 var l_txt       = input.color(color.new(color.white, 20), "Label text", group="06. Colors")
 var c_leg_exact = input.color(color.new(#00E676, 25), "Leg exact", inline="legacc", group="06. Colors")
@@ -154,13 +122,19 @@ var c_leg_out   = input.color(color.new(#EF5350, 35), "Out", inline="legacc", gr
 var a_type = input.string("Both", "Alert for", options=["Potential patterns","Complete patterns","Both"], inline="alert", group="07. Alerts")
 
 // 08. Debug
-var debug_on         = input.bool(false, "Enable debug labels", group="08. Debug", tooltip="When enabled, key lifecycle events are annotated on-chart to help explain why patterns were accepted, promoted, or discarded.")
-var debug_max_labels = input.int(40, "Max debug labels", minval=0, maxval=200, group="08. Debug", tooltip="Maximum number of debug labels to keep on chart. Oldest labels are deleted first.")
+var debug_on         = input.bool(false, "Enable debug labels", group="08. Debug", tooltip="Annotate lifecycle events on chart for debugging.")
+var debug_max_labels = input.int(40, "Max debug labels", minval=0, maxval=200, group="08. Debug", tooltip="Max debug labels kept. Oldest are removed.")
+var lifecycle_guard_strict = input.bool(true, "Lifecycle strict guard", group="08. Debug", tooltip="Normalize invalid pending states and reject bad trade geometry.")
+var debug_lifecycle = input.bool(false, "Lifecycle decision trace", group="08. Debug", tooltip="Log lifecycle guard decisions as labels.")
 
 
 // ─── VARS ──────────────────────────────────────────────────
 
+var color[] bullBearBase = array.new_color(0)
+var color[] patternBase = array.new_color(0)
 var int[] includeTps = array.new_int()
+var string canonEntryMode = e_lvlc
+var string canonStopMode = stopB
 if barstate.isfirst
     if gartOn
         array.push(includeTps,1)
@@ -172,6 +146,30 @@ if barstate.isfirst
         array.push(includeTps,4)
     if sharkOn
         array.push(includeTps,5)
+
+    array.push(bullBearBase, c_bull_base)
+    array.push(bullBearBase, c_bear_base)
+    array.push(patternBase, c_gart_base)
+    array.push(patternBase, c_bat_base)
+    array.push(patternBase, c_bfly_base)
+    array.push(patternBase, c_crab_base)
+    array.push(patternBase, c_shark_base)
+
+    canonEntryMode := switch e_lvlc
+        "Near confluent PRZ" => "Nearest confluent PRZ level"
+        "Far confluent PRZ" => "Farthest confluent PRZ level"
+        "Mid confluent PRZ" => "Between the two confluent PRZ levels"
+        "Nearest PRZ" => "Nearest PRZ level"
+        "Farthest PRZ" => "Farthest PRZ level"
+        => e_lvlc
+
+    canonStopMode := switch stopB
+        "% beyond X/D" => "% beyond X or D"
+        "% beyond far PRZ" => "% beyond Farthest PRZ level"
+        "% beyond D" => "% beyond Point D"
+        "% beyond entry" => "% beyond entry"
+        "% to T1 beyond entry" => "% of distance to target 1, beyond entry"
+        => stopB
 
 
 var h.harmonic_params params = h.init_params(pctErr,pctAsym,includeTps,w_e,w_p,w_d)
@@ -207,9 +205,12 @@ var float[] accTotReturn    = array.new_float(0)
 var int[]   accT1Hits   = array.new_int(0)
 var int[]   accT2Hits   = array.new_int(0)
 var float[] fibLevels = array.from(0.382, 0.500, 0.618, 0.786, 0.886, 1.130, 1.271, 1.337, 1.500, 1.618, 1.786, 2.000, 2.191, 2.618, 3.140, 3.618)
-var table fibTbl = table.new(position.top_right, 5, 17,bgcolor=color.new(color.black, 30),border_color=color.new(color.gray, 60),border_width=1)
+var color C_NA_BG = color.new(color.black, 30)
+var table fibTbl = table.new(position.top_right, 5, 17,bgcolor=C_NA_BG,border_color=color.new(color.gray, 60),border_width=1)
 var table statsTbl = na
 var int statsTblRows = 0
+var int lastStatsSig = na
+var bool prevShowStats = show_stats
 
 // ─── FUNCTIONS ─────────────────────────────────────────────
 
@@ -230,6 +231,11 @@ debugLog(string msg, int x, float y, bool isBull=true) =>
         array.push(debugLabels, lb)
         if array.size(debugLabels) > debug_max_labels
             label.delete(array.shift(debugLabels))
+
+lifecycleDebug(string msg, h.xabcd_harmonic p) =>
+    if debug_lifecycle
+        yRef = not na(p.e.y) ? p.e.y : p.d.y
+        debugLog("[LC] " + msg + " | " + p.pid, bar_index, yRef, p.bull)
 
 legMidKey(string pid, string leg) =>
     pid + "|" + leg
@@ -266,14 +272,11 @@ patternIndexByPid(h.xabcd_harmonic[] arr, string pid) =>
     n = array.size(arr)
     if not na(pid) and n > 0
         for i=0 to n-1
-            p = array.get(arr, i)
-            if p.pid == pid
+            pat = array.get(arr, i)
+            if pat.pid == pid
                 idx := i
                 break
     idx
-
-arrayHasPid(h.xabcd_harmonic[] arr, string pid) =>
-    patternIndexByPid(arr, pid) >= 0
 
 pidCacheAdd(string pid) =>
     if not na(pid) and pid != "" and array.indexof(pidCache, pid) < 0
@@ -290,22 +293,6 @@ pidCacheRemove(string pid) =>
     idx = array.indexof(pidCache, pid)
     if idx >= 0
         array.remove(pidCache, idx)
-    0
-
-rebuildPidCache() =>
-    array.clear(pidCache)
-    pidCacheAddArray(incompletePatterns)
-    pidCacheAddArray(pending)
-    pidCacheAddArray(bullGart)
-    pidCacheAddArray(bullBat)
-    pidCacheAddArray(bullBfly)
-    pidCacheAddArray(bullCrab)
-    pidCacheAddArray(bullShark)
-    pidCacheAddArray(bearGart)
-    pidCacheAddArray(bearBat)
-    pidCacheAddArray(bearBfly)
-    pidCacheAddArray(bearCrab)
-    pidCacheAddArray(bearShark)
     0
 
 patternPidExists(string pid) =>
@@ -429,39 +416,21 @@ printFibTable() =>
         table.cell(fibTbl, 3, 0, "10% Low",  text_color=color.new(#FFD600, 0), text_size=size.small, text_halign=text.align_center, bgcolor=color.new(color.gray, 50))
         table.cell(fibTbl, 4, 0, "10% High", text_color=color.new(#FFD600, 0), text_size=size.small, text_halign=text.align_center, bgcolor=color.new(color.gray, 50))
 
-        renderFibRow(fibTbl,  1, 0.382)
-        renderFibRow(fibTbl,  2, 0.500)
-        renderFibRow(fibTbl,  3, 0.618)
-        renderFibRow(fibTbl,  4, 0.786)
-        renderFibRow(fibTbl,  5, 0.886)
-        renderFibRow(fibTbl,  6, 1.130)
-        renderFibRow(fibTbl,  7, 1.271)
-        renderFibRow(fibTbl,  8, 1.337)
-        renderFibRow(fibTbl,  9, 1.500)
-        renderFibRow(fibTbl, 10, 1.618)
-        renderFibRow(fibTbl, 11, 1.786)
-        renderFibRow(fibTbl, 12, 2.000)
-        renderFibRow(fibTbl, 13, 2.191)
-        renderFibRow(fibTbl, 14, 2.618)
-        renderFibRow(fibTbl, 15, 3.140)
-        renderFibRow(fibTbl, 16, 3.618)
+        for i = 0 to array.size(fibLevels) - 1
+            renderFibRow(fibTbl, i + 1, array.get(fibLevels, i))
 
 // patColors: resolves the five color slots for a pattern type and direction.
 // use_per_pattern=true → per-type colors. false → global bull/bear colors.
 
-patColors(int tp, bool bull) =>
-    PatColors res = PatColors.new()
+safeArrayColor(color[] a, int idx, color fallback) =>
+    idx >= 0 and idx < array.size(a) ? array.get(a, idx) : fallback
 
-    if use_per_pattern
-        switch tp
-            1 => res := PatColors.new(c_gart_line,  c_gart_fill,  c_gart_txt,  c_gart_tt,  c_gart_tgt)
-            2 => res := PatColors.new(c_bat_line,   c_bat_fill,   c_bat_txt,   c_bat_tt,   c_bat_tgt)
-            3 => res := PatColors.new(c_bfly_line,  c_bfly_fill,  c_bfly_txt,  c_bfly_tt,  c_bfly_tgt)
-            4 => res := PatColors.new(c_crab_line,  c_crab_fill,  c_crab_txt,  c_crab_tt,  c_crab_tgt)
-            5 => res := PatColors.new(c_shark_line, c_shark_fill, c_shark_txt, c_shark_tt, c_shark_tgt)
-    else
-        res := bull ? PatColors.new(c_bull_line, c_bull_fill, c_bull_txt, c_bull_tt, c_bull_tgt) : PatColors.new(c_bear_line, c_bear_fill, c_bear_txt, c_bear_tt, c_bear_tgt)
-    res
+patColors(int tp, bool bull) =>
+    perPatternBase = safeArrayColor(patternBase, tp - 1, c_gart_base)
+    bullBear = bull ? safeArrayColor(bullBearBase, 0, c_bull_base) : safeArrayColor(bullBearBase, 1, c_bear_base)
+    base = use_per_pattern ? perPatternBase : bullBear
+    txtBase = use_per_pattern ? base : color.white
+    PatColors.new(color.new(base, 20), color.new(base, 70), color.new(txtBase, 20), color.new(base, 80), color.new(base, 40))
 
 // drawFills: overrides library fill by creating linefills between adjacent legs
 // (XA–AB, AB–BC, BC–CD). Called last in drawPattern() to render over library fills.
@@ -515,7 +484,7 @@ harmonic_xabcd_targets(bool bull, float xY, float aY, float bY, float cY, float 
 // stillActive: true when within time limit AND entry window still open
 
 tLimit(xX,dX) =>
-    int((dX - xX)*tLimitMult)
+    na(xX) or na(dX) ? 0 : int((dX - xX)*tLimitMult)
 
 pendingLimit(xX,dX) =>
     dyn = tLimit(xX,dX)
@@ -527,10 +496,10 @@ incTLimit(xX,cX) =>
     incompleteMaxBars > 0 ? math.min(dyn, incompleteMaxBars) : dyn
 
 entryWindowExpired(xX,dX) =>
-    bar_index - dX > int((dX - xX)*e_tLimit)
+    na(xX) or na(dX) ? false : bar_index - dX > int((dX - xX)*e_tLimit)
 
 stillActive(xX,dX) =>
-    bar_index - pendingLimit(xX,dX) <= dX and entryWindowExpired(xX,dX) == false
+    not na(xX) and not na(dX) and bar_index - pendingLimit(xX,dX) <= dX and entryWindowExpired(xX,dX) == false
 
 effectivePreset() =>
     detection_preset
@@ -556,7 +525,7 @@ entry(p) =>
     if belowScoreThreshold(p)
         [na,na,na]
     else
-        ta.harmonic_xabcd_entry(p.bull,p.tp,p.x.y,p.a.y,p.b.y,p.c.y,p.d.y,e_afterC,e_lvlc,e_afterD,e_lvldPct)
+        ta.harmonic_xabcd_entry(p.bull,p.tp,p.x.y,p.a.y,p.b.y,p.c.y,p.d.y,e_afterC,canonEntryMode,e_afterD,e_lvldPct)
 
 // entryHit: checks if price has reached the entry level this bar.
 // Returns [hit, barIndex, price]. [false,na,na] if timed out. [na,na,na] if entry > T1.
@@ -575,6 +544,91 @@ entryHit(p) =>
         else
             [eH,eX,eY]
 
+entryCandidateInvalid(h.xabcd_harmonic p, float level) =>
+    not na(level) and ((p.bull and p.t1 < level) or (p.bull==false and p.t1 > level))
+
+entryCandidatesInvalid(h.xabcd_harmonic p) =>
+    [_, afterC, afterD] = entry(p)
+    hasCandidates = not na(afterC) or not na(afterD)
+    anyValid = (not na(afterC) and not entryCandidateInvalid(p, afterC)) or (not na(afterD) and not entryCandidateInvalid(p, afterD))
+    hasCandidates and not anyValid
+
+tradeLevelsValid(h.xabcd_harmonic p, float eY) =>
+    if na(eY) or na(p.stop) or na(p.t1) or na(p.t2)
+        false
+    else if p.bull
+        p.stop < eY and p.t1 > eY and p.t2 >= p.t1
+    else
+        p.stop > eY and p.t1 < eY and p.t2 <= p.t1
+
+sanitizeLifecycle(h.xabcd_harmonic p) =>
+    if p.eHit != true
+        if not na(p.t1Hit) or not na(p.t2Hit) or p.sHit
+            lifecycleDebug("Reset outcomes because entry is not filled", p)
+        p.t1Hit := na
+        p.t2Hit := na
+        p.sHit := false
+    else
+        if p.t2Hit and p.t1Hit != true
+            p.t1Hit := true
+            lifecycleDebug("Promoted T1 because T2 is hit", p)
+        if p.t2Hit and p.sHit
+            if same_bar_resolution == "Target first (optimistic)"
+                p.sHit := false
+                lifecycleDebug("Dropped stop on T2+Stop conflict (target-first)", p)
+            else
+                p.t2Hit := na
+                if na(p.t1Hit)
+                    p.t1Hit := false
+                lifecycleDebug("Dropped T2 on T2+Stop conflict", p)
+    0
+
+sameBarGapPrefersTarget(h.xabcd_harmonic p) =>
+    pref = bool(na)
+    if same_bar_gap_hint and not na(close[1])
+        if p.bull
+            gapToT = not na(p.t2) and open >= p.t2 and close[1] < p.t2
+            gapToS = not na(p.stop) and open <= p.stop and close[1] > p.stop
+            if gapToT and not gapToS
+                pref := true
+            else if gapToS and not gapToT
+                pref := false
+        else
+            gapToT = not na(p.t2) and open <= p.t2 and close[1] > p.t2
+            gapToS = not na(p.stop) and open >= p.stop and close[1] < p.stop
+            if gapToT and not gapToS
+                pref := true
+            else if gapToS and not gapToT
+                pref := false
+    pref
+
+resolveFallbackHitState(h.xabcd_harmonic p, bool t1h, bool t2h, bool sH, int t1x, float t1y, int t2x, float t2y) =>
+    if na(t1h) and na(t2h) and sH != true
+        hitT2 = not na(p.t2) and (p.bull ? high >= p.t2 : low <= p.t2)
+        hitT1 = not na(p.t1) and (p.bull ? high >= p.t1 : low <= p.t1)
+        hitS  = not na(p.stop) and (p.bull ? low <= p.stop : high >= p.stop)
+        if hitS and (hitT1 or hitT2)
+            gapPrefTarget = sameBarGapPrefersTarget(p)
+            if gapPrefTarget == false or (na(gapPrefTarget) and same_bar_resolution == "Stop first (conservative)")
+                [false, na, true, bar_index, p.stop, na, na]
+            else if gapPrefTarget or same_bar_resolution == "Target first (optimistic)"
+                if hitT2
+                    [true, true, false, bar_index, p.t1, bar_index, p.t2]
+                else
+                    [true, na, false, bar_index, p.t1, na, na]
+            else
+                [t1h,t2h,sH,t1x,t1y,t2x,t2y]
+        else if hitS
+            [false, na, true, bar_index, p.stop, na, na]
+        else if hitT2
+            [true, true, false, bar_index, p.t1, bar_index, p.t2]
+        else if hitT1
+            [true, na, false, bar_index, p.t1, na, na]
+        else
+            [t1h,t2h,sH,t1x,t1y,t2x,t2y]
+    else
+        [t1h,t2h,sH,t1x,t1y,t2x,t2y]
+
 // success: checks T1/T2/stop resolution each bar for a pending pattern.
 // Delegates to t.tradeClosed() while within tLimit. Returns [t1Hit,t2Hit,sHit,t1x,t1y,t2x,t2y].
 
@@ -583,38 +637,7 @@ success(p) =>
         [p.t1Hit,p.t2Hit,p.sHit,na,na,na,na]
     else if bar_index <= (p.d.x + pendingLimit(p.x.x,p.d.x)) and p.eHit
         [t1h,t2h,sH,t1x,t1y,t2x,t2y] = ta.tradeClosed(p.e.x,p.e.y,p.stop,p.t1Hit,p.t2Hit,p.t1,p.t2)
-
-        // Fallback: resolve obvious crosses from current OHLC when library leaves state undecided.
-        // This prevents stale "Targets pending" labels on patterns that clearly reached levels.
-        if na(t1h) and na(t2h) and sH != true
-            if p.bull
-                hitT2 = not na(p.t2) and high >= p.t2
-                hitT1 = not na(p.t1) and high >= p.t1
-                hitS  = not na(p.stop) and low <= p.stop
-                // Conservative resolution for same-bar ambiguity: stop takes precedence.
-                if hitS
-                    [false, na, true, bar_index, p.stop, na, na]
-                else if hitT2
-                    [true, true, false, bar_index, p.t1, bar_index, p.t2]
-                else if hitT1
-                    [true, na, false, bar_index, p.t1, na, na]
-                else
-                    [t1h,t2h,sH,t1x,t1y,t2x,t2y]
-            else
-                hitT2 = not na(p.t2) and low <= p.t2
-                hitT1 = not na(p.t1) and low <= p.t1
-                hitS  = not na(p.stop) and high >= p.stop
-                // Conservative resolution for same-bar ambiguity: stop takes precedence.
-                if hitS
-                    [false, na, true, bar_index, p.stop, na, na]
-                else if hitT2
-                    [true, true, false, bar_index, p.t1, bar_index, p.t2]
-                else if hitT1
-                    [true, na, false, bar_index, p.t1, na, na]
-                else
-                    [t1h,t2h,sH,t1x,t1y,t2x,t2y]
-        else
-            [t1h,t2h,sH,t1x,t1y,t2x,t2y]
+        resolveFallbackHitState(p, t1h, t2h, sH, t1x, t1y, t2x, t2y)
     else
         [p.t1Hit,p.t2Hit,p.sHit,na,na,na,na]
 
@@ -657,6 +680,7 @@ removePending(pid) =>
 // 5=entryPending  waiting for entry fill
 // 6=targetsPending entry filled, waiting for T1/T2/stop
 // 7=timedOut      lifecycle exceeded pending limit
+// 8=entryExpired   entry filled, but no target/stop before time limit
 
 patternState(p) =>
     active = stillActive(p.x.x, p.d.x)
@@ -669,25 +693,23 @@ patternState(p) =>
         2
     else if scoreBlocked and active
         3
-    else if (p.eHit == false or na(p.eHit)) and not active
+    else if p.eHit == false
         4
     else if na(p.eHit) and active
         5
+    else if na(p.eHit)
+        4
     else if na(p.t1Hit) and active
         6
+    else if p.eHit and na(p.t1Hit) and not active
+        8
     else
         7
         
 successTxt(p) =>
-    switch patternState(p)
-        0 => " (Success - Target 1, Target 2)"
-        1 => " (Success - Target 1)"
-        2 => " (Failed)"
-        3 => " (No entry)"
-        4 => " (Missed entry)"
-        5 => " (Entry pending)"
-        6 => " (Targets pending)"
-        => " (Timed out)"
+    var string[] stateTxtMap = array.from(" (Success - Target 1, Target 2)", " (Success - Target 1)", " (Failed)", " (No entry)", " (Missed entry)", " (Entry pending)", " (Targets pending)", " (Timed out)", " (Entry expired)")
+    st = patternState(p)
+    st >= 0 and st < array.size(stateTxtMap) ? array.get(stateTxtMap, st) : " (Timed out)"
 
 ratToStr(r) =>
     na(r) ? "NA    " : str.tostring(r, "0.000")
@@ -695,11 +717,17 @@ ratToStr(r) =>
 reToStr(r) =>
     na(r) ? "NA    " : str.tostring(r, "0.0") + "%"
 
+pctStr(v) =>
+    str.tostring(v, "#.##") + "%"
+
+safeAvg(float sum, int count) =>
+    count > 0 ? (sum / count) : float(na)
+
 // legQ: quality indicator for a leg's fib error (uses p.re_* decimal ratio fields).
 // ✓ within 5% | ~ within 10% | ✗ outside 10% — aligns with fib tolerance table tiers.
 
 legQ(err) =>
-    na(err) ? "-" : err <= 0.05 ? "✓" : err <= 0.10 ? "~" : "✗"
+    na(err) ? "-" : math.abs(err) <= 0.05 ? "✓" : math.abs(err) <= 0.10 ? "~" : "✗"
 
 // tooltipText: builds pattern tooltip text.
 // Layout and sections are controlled by Display settings.
@@ -716,36 +744,37 @@ tooltipText(p) =>
     bdQ  = legQ(p.re_bd)
     xdQ  = legQ(p.re_xd)
     compact = tt_layout == "Compact"
-    xbErr = p.tp==5 ? "NA" : str.tostring(p.re_xb*100,"#.0") + "%"
-    acErr = str.tostring(p.re_ac*100,"#.0") + "%"
-    bdErr = reToStr(p.re_bd*100)
+    string tip = h.get_name(p) + (compact ? "" : successTxt(p)) + "\n\n"
+    tip += "Score: " + str.tostring(p.score*100,"#.##") + (not h.is_complete(p) ? "  [incomplete]" : "") + "\n\n"
 
-    l1  = h.get_name(p) + (compact ? "" : successTxt(p)) + "\n\n"
-    l2  = "Score: " + str.tostring(p.score*100,"#.##") + (not h.is_complete(p) ? "  [incomplete]" : "") + "\n\n"
-    l3  = tt_show_leg_err ? "Leg | Actual | Err | Theoretical\n" : "Leg | Actual | Theoretical\n"
-    l4  = tt_show_leg_err ? "XB " + xbQ + " | " + str.tostring(p.r_xb,"0.000") + " | " + xbErr + " | " + rb + "\n" : "XB " + xbQ + " | " + str.tostring(p.r_xb,"0.000") + " | " + rb + "\n"
-    l5  = tt_show_leg_err ? "AC " + acQ + " | " + str.tostring(p.r_ac,"0.000") + " | " + acErr + " | " + rc + "\n" : "AC " + acQ + " | " + str.tostring(p.r_ac,"0.000") + " | " + rc + "\n"
-    l6  = tt_show_leg_err ? "BD " + bdQ + " | " + ratToStr(p.r_bd) + " | " + bdErr + " | " + rd1 + "\n" : "BD " + bdQ + " | " + ratToStr(p.r_bd) + " | " + rd1 + "\n"
-    l7  = "XD " + xdQ + " | " + ratToStr(p.r_xd) + " | " + rd2 + "\n\n"
-    l8  = tt_show_trade_levels ? "Entry:   " + str.tostring(na(eY) ? float(na) : eY, "#.####") + "\n" : ""
-    l9  = tt_show_trade_levels ? "Stop:    " + (na(p.stop) ? "NA" : str.tostring(p.stop,"#.####")) + "\n" : ""
-    l10 = tt_show_trade_levels ? "T1:      " + str.tostring(p.t1,"#.####") + "\n" : ""
-    l11 = tt_show_trade_levels ? "T2:      " + str.tostring(p.t2,"#.####") + "\n" : ""
-    l12 = (tt_show_trade_levels and tt_show_rr and not na(rr1)) ? "R:R T1:  " + str.tostring(rr1,"#.##") + " : 1\n" : ""
-    l13 = (tt_show_trade_levels and tt_show_rr and not na(rr2)) ? "R:R T2:  " + str.tostring(rr2,"#.##") + " : 1" : ""
-    l1 + l2 + l3 + l4 + l5 + l6 + l7 + l8 + l9 + l10 + l11 + l12 + l13
+    if tt_show_leg_err
+        tip += "Leg | Actual | Err | Theoretical\n"
+        tip += "XB " + xbQ + " | " + str.tostring(p.r_xb,"0.000") + " | " + (p.tp==5 ? "NA" : str.tostring(p.re_xb*100,"#.0") + "%") + " | " + rb + "\n"
+        tip += "AC " + acQ + " | " + str.tostring(p.r_ac,"0.000") + " | " + str.tostring(p.re_ac*100,"#.0") + "%" + " | " + rc + "\n"
+        tip += "BD " + bdQ + " | " + ratToStr(p.r_bd) + " | " + reToStr(p.re_bd) + " | " + rd1 + "\n"
+    else
+        tip += "Leg | Actual | Theoretical\n"
+        tip += "XB " + xbQ + " | " + str.tostring(p.r_xb,"0.000") + " | " + rb + "\n"
+        tip += "AC " + acQ + " | " + str.tostring(p.r_ac,"0.000") + " | " + rc + "\n"
+        tip += "BD " + bdQ + " | " + ratToStr(p.r_bd) + " | " + rd1 + "\n"
+
+    tip += "XD " + xdQ + " | " + ratToStr(p.r_xd) + " | " + rd2 + "\n\n"
+    if tt_show_trade_levels
+        tip += "Entry:   " + str.tostring(na(eY) ? float(na) : eY, "#.####") + "\n"
+        tip += "Stop:    " + (na(p.stop) ? "NA" : str.tostring(p.stop,"#.####")) + "\n"
+        tip += "T1:      " + str.tostring(p.t1,"#.####") + "\n"
+        tip += "T2:      " + str.tostring(p.t2,"#.####") + "\n"
+        if tt_show_rr and not na(rr1)
+            tip += "R:R T1:  " + str.tostring(rr1,"#.##") + " : 1\n"
+        if tt_show_rr and not na(rr2)
+            tip += "R:R T2:  " + str.tostring(rr2,"#.##") + " : 1"
+    tip
 
 
 stateGlyph(p) =>
-    switch patternState(p)
-        0 => " ✅✅"
-        1 => " ✅"
-        2 => " ❌"
-        3 => " ⛔"
-        4 => " ⛔"
-        5 => " ⏳"
-        6 => " ⏳"
-        => " 🕝"
+    var string[] stateGlyphMap = array.from(" ✅✅", " ✅", " ❌", " ⛔", " ⛔", " ⏳", " ⏳", " 🕝", " 🕝")
+    st = patternState(p)
+    st >= 0 and st < array.size(stateGlyphMap) ? array.get(stateGlyphMap, st) : " 🕝"
 
 isPatternActive(p) =>
     if not h.is_complete(p)
@@ -816,6 +845,20 @@ clusterOverlap(h.xabcd_harmonic a, h.xabcd_harmonic b) =>
     centerClose = math.abs(aMid - bMid) <= (maxW * cluster_price_mult)
     dxClose and (rangeOverlap or centerClose)
 
+// clusterCoarseCandidate: fast prefilter before full overlap math.
+// Skips obviously distant patterns to reduce expensive winner comparisons.
+clusterCoarseCandidate(h.xabcd_harmonic a, h.xabcd_harmonic b) =>
+    dx = math.abs(clusterKeyX(a) - clusterKeyX(b))
+    if dx > cluster_d_window
+        false
+    else
+        [aHi, aLo] = clusterZone(a)
+        [bHi, bLo] = clusterZone(b)
+        aMid = (aHi + aLo) / 2.0
+        bMid = (bHi + bLo) / 2.0
+        maxW = math.max(clusterZoneWidth(a), clusterZoneWidth(b))
+        math.abs(aMid - bMid) <= (maxW * cluster_price_mult)
+
 clusterBetter(h.xabcd_harmonic a, h.xabcd_harmonic q) =>
     // Tie-break policy (highest priority first):
     // 1) Complete over incomplete
@@ -852,7 +895,7 @@ clusterIsWinner(h.xabcd_harmonic p, h.xabcd_harmonic[] group) =>
     if n > 1
         for i=0 to n-1
             q = array.get(group, i)
-            if q.pid != p.pid and clusterCandidateAllowed(q) and clusterOverlap(p, q)
+            if q.pid != p.pid and clusterCandidateAllowed(q) and clusterCoarseCandidate(p, q) and clusterOverlap(p, q)
                 if clusterBetter(q, p)
                     win := false
                     break
@@ -886,12 +929,9 @@ collectDirectionTypePatterns(bool isBull, int tp) =>
     all
 
 tablePatternBadge(int tp) =>
-    switch tp
-        1 => "GRT"
-        2 => "BAT"
-        3 => "BFL"
-        4 => "CRB"
-        => "SHK"
+    var string[] badges = array.from("GRT", "BAT", "BFL", "CRB", "SHK")
+    idx = tp - 1
+    idx >= 0 and idx < array.size(badges) ? array.get(badges, idx) : "SHK"
 
 labelText(p,stateTxt) =>
     h.get_symbol(p.tp) + " " + str.tostring(math.round(p.score,3)*100) + stateTxt
@@ -995,6 +1035,32 @@ rangeHigh(n, o=0) =>
                 v := high[i]
         v
 
+// rangeBoundsFromC: caches [high, low] bounds from C to current bar (with offset)
+// for the current bar execution to avoid repeating identical range scans.
+rangeBoundsFromC(cX, o=1) =>
+    var int cacheBar = na
+    var int[] cacheKeys = array.new_int(0)
+    var float[] cacheHigh = array.new_float(0)
+    var float[] cacheLow = array.new_float(0)
+
+    if na(cacheBar) or cacheBar != bar_index
+        cacheBar := bar_index
+        array.clear(cacheKeys)
+        array.clear(cacheHigh)
+        array.clear(cacheLow)
+
+    key = (cX * 8192) + o
+    idx = array.indexof(cacheKeys, key)
+    if idx >= 0
+        [array.get(cacheHigh, idx), array.get(cacheLow, idx)]
+    else
+        hi = rangeHigh(bar_index-cX, o)
+        lo = rangeLow(bar_index-cX, o)
+        array.push(cacheKeys, key)
+        array.push(cacheHigh, hi)
+        array.push(cacheLow, lo)
+        [hi, lo]
+
 // isNotDuplicate: true if p is not a duplicate of the most recently stored pattern
 // of the same type/direction. Prevents storing the same XABC structure twice
 // when multiple pivot lengths match the same structure.
@@ -1041,14 +1107,10 @@ storeIncomplete(isBull,h1,h2,h3,h4,h5,h6,xX,xY,aX,aY,bX,bY,cX,cY) =>
             if exists == false
                 pat = h.init(xX,xY,aX,aY,bX,bY,cX,cY,dX,dY,params,tp)
                 if not na(pat)
-                    lowBound = rangeLow(bar_index-cX)
-                    highBound = rangeHigh(bar_index-cX)
-
                     [_,eC,_] = entry(pat)
 
                     tolOk = patternRatiosPassBand(pat, false)
-                    entryOk = na(eC) or (not na(eC) and ((isBull and eC < lowBound) or (isBull==false and eC > highBound)))
-                    if tolOk and entryOk
+                    if tolOk
                         if isNotDuplicate(pat)
                             array.push(incompletePatterns,pat)
                             pidCacheAdd(pat.pid)
@@ -1061,8 +1123,6 @@ storeIncomplete(isBull,h1,h2,h3,h4,h5,h6,xX,xY,aX,aY,bX,bY,cX,cY) =>
                             debugLog("Skip duplicate incomplete", cX, cY, isBull)
                     else if not tolOk
                         debugLog("Skip incomplete: fib band mismatch", cX, cY, isBull)
-                    else
-                        debugLog("Skip incomplete: entry already touched", cX, cY, isBull)
 
 // setTargets: applies T1/T2 target strings to a pattern via h.set_target().
 
@@ -1070,11 +1130,8 @@ setTargets(p) =>
     p.t1 := rangeTargetFromD(p.bull, p.x.y, p.a.y, p.b.y, p.c.y, p.d.y, 0.382)
     p.t2 := rangeTargetFromD(p.bull, p.x.y, p.a.y, p.b.y, p.c.y, p.d.y, 0.618)
 
-// commitPattern: finalises a complete pattern — stores it, sets targets, draws,
-// computes stop, adds to pending[] if entry criteria are met.
-
 commitPattern(p,force=false) =>
-    if patternRatiosPassBand(p, true) and (hsOn==false or belowScoreThreshold(p)==false)
+    if patternRatiosPassBand(p, true)
         a = storageFor(p.bull,p.tp)
         array.push(a,p)
         pidCacheAdd(p.pid)
@@ -1083,13 +1140,22 @@ commitPattern(p,force=false) =>
                 removeIncomplete(h.incomplete_pid(p))
             p.invalid_d := false
         setTargets(p)
-        drawPattern(p)
+        showPattern = hsOn==false or belowScoreThreshold(p)==false
+        if showPattern
+            drawPattern(p)
         [upper,lower] = h.prz_range(p)
-        p.stop := ta.harmonic_xabcd_stop(stopB,stopPct,p.bull,p.x.y,p.d.y,upper,lower,p.t1,p.e.y)
-        if belowScoreThreshold(p)==false
+        p.stop := ta.harmonic_xabcd_stop(canonStopMode,stopPct,p.bull,p.x.y,p.d.y,upper,lower,p.t1,p.e.y)
+        [eLvl,_,_] = entry(p)
+        tradePlanOk = na(eLvl) ? true : tradeLevelsValid(p, eLvl)
+        noEntryNow = entryCandidatesInvalid(p)
+        if belowScoreThreshold(p)==false and not noEntryNow and tradePlanOk
             array.push(pending,p)
             pidCacheAdd(p.pid)
-        if a_type == "Complete patterns" or a_type == "Both"
+        else if noEntryNow
+            debugLog("Skip pending: entry beyond T1", p.d.x, p.d.y, p.bull)
+        else if not tradePlanOk
+            debugLog("Skip pending: invalid trade geometry", p.d.x, p.d.y, p.bull)
+        if showPattern and (a_type == "Complete patterns" or a_type == "Both")
             alert(alertMsg(p),alert.freq_once_per_bar_close)
 
 // finalizePattern: deduplication + update logic for complete patterns.
@@ -1115,7 +1181,7 @@ finalizePattern(p,force=false) =>
                         last.invalid_d := false
                     h.init(last.x.x,last.x.y,last.a.x,last.a.y,last.b.x,last.b.y,last.c.x,last.c.y,p.d.x,p.d.y,params,last.tp,last)
                     [upper,lower] = h.prz_range(last)
-                    last.stop := ta.harmonic_xabcd_stop(stopB,stopPct,last.bull,last.x.y,last.d.y,upper,lower,last.t1,last.e.y)
+                    last.stop := ta.harmonic_xabcd_stop(canonStopMode,stopPct,last.bull,last.x.y,last.d.y,upper,lower,last.t1,last.e.y)
                     drawPattern(last)
                     setTargets(last)
                     pat := last
@@ -1132,14 +1198,18 @@ finalizePattern(p,force=false) =>
     
     if not na(pat)
         if lasteH
-            draw.eHitLbl(pat.e.x,pat.e.y,pat.d.x,pat.d.y,p.bull,true)
+            if not na(pat.e.x) and not na(pat.e.y)
+                draw.eHitLbl(pat.e.x,pat.e.y,pat.d.x,pat.d.y,p.bull,true)
         else
             [eHit,eX,eY] = entryHit(p)
             if eHit
                 pat.eHit := true
                 pat.e.x := eX
                 pat.e.y := eY
-                draw.eHitLbl(eX,eY,pat.d.x,pat.d.y,pat.bull)
+                [upper,lower] = h.prz_range(pat)
+                pat.stop := ta.harmonic_xabcd_stop(canonStopMode,stopPct,pat.bull,pat.x.y,pat.d.y,upper,lower,pat.t1,pat.e.y)
+                if not na(eX) and not na(eY)
+                    draw.eHitLbl(eX,eY,pat.d.x,pat.d.y,pat.bull)
                 refreshPatternLabel(pat)
         ""
 
@@ -1152,12 +1222,6 @@ pendingEntryChanged(h.xabcd_harmonic ip, bool eH) =>
 pendingNeedsRefresh(h.xabcd_harmonic ip, bool expired, bool eH, bool t1h, bool t2h, bool sH) =>
     expired or (eH and ((not na(t1h) and na(ip.t1Hit)) or (not na(t2h) and na(ip.t2Hit)))) or pendingEntryChanged(ip, eH) or sH
 
-// updatePendingPatterns: runs every bar on pending[].
-// Checks entry/T1/T2/stop hits. Removes expired or fully resolved patterns.
-// Returns updated array of still-active patterns.
-// Lifecycle ownership: pending[] state fields (eHit/t1Hit/t2Hit/sHit) are
-// mutated here so transitions remain deterministic.
-
 updatePendingPatterns() =>
     h.xabcd_harmonic[] new = array.new<h.xabcd_harmonic>()
     if array.size(pending) > 0
@@ -1167,14 +1231,23 @@ updatePendingPatterns() =>
             liveLimit = pendingLimit(ip.x.x,ip.d.x)
             expired = bar_index >= (ip.d.x + liveLimit + 1) or eH==false
             [t1h,t2h,sH,t1x,t1y,t2x,t2y] = success(ip)
-            if pendingShouldKeep(expired, eH, t1h, t2h, sH)
-                array.push(new,ip)
             if pendingNeedsRefresh(ip, expired, eH, t1h, t2h, sH)
                 if (eH or eH==false) and na(ip.eHit)
                     ip.eHit := eH
                     ip.e.x := eHx
                     ip.e.y := eHy
-                    draw.eHitLbl(eHx,eHy,ip.d.x,ip.d.y,ip.bull)
+                    if eH
+                        [upper,lower] = h.prz_range(ip)
+                        ip.stop := ta.harmonic_xabcd_stop(canonStopMode,stopPct,ip.bull,ip.x.y,ip.d.y,upper,lower,ip.t1,ip.e.y)
+                        if lifecycle_guard_strict and not tradeLevelsValid(ip, ip.e.y)
+                            ip.eHit := false
+                            ip.e.x := na
+                            ip.e.y := na
+                            eH := false
+                            expired := true
+                            lifecycleDebug("Rejected entry: invalid trade geometry", ip)
+                    if not na(eHx) and not na(eHy)
+                        draw.eHitLbl(eHx,eHy,ip.d.x,ip.d.y,ip.bull)
                     debugLog(eH ? "Entry hit" : "Entry missed/expired", ip.d.x, ip.d.y, ip.bull)
                 if t1h and na(ip.t1Hit)
                     ip.t1Hit := true
@@ -1191,6 +1264,16 @@ updatePendingPatterns() =>
                     ip.t2Hit := true
                     draw.tHitLbl(t2x,t2y,eHx,eHy,ip.bull)
                     debugLog("Target 2 hit", t2x, t2y, ip.bull)
+            if lifecycle_guard_strict
+                sanitizeLifecycle(ip)
+                if ip.eHit == false
+                    expired := true
+            keepPending = pendingShouldKeep(expired, ip.eHit, ip.t1Hit, ip.t2Hit, ip.sHit)
+            if keepPending
+                array.push(new,ip)
+            else if debug_lifecycle
+                lifecycleDebug("Removed from pending (expired/resolved)", ip)
+            if pendingNeedsRefresh(ip, expired, eH, t1h, t2h, sH) or lifecycle_guard_strict
                 refreshPatternLabel(ip)
     new
 
@@ -1228,7 +1311,6 @@ updateIncompletePatterns() =>
                     debugLog("Discarded duplicate after C", p.c.x, p.c.y, p.bull)
             else if bar_index >= (p.c.x + tLimit + 1) or (p.bull and (high > p.c.y or low < lower)) or (p.bull==false and (low < p.c.y or high > upper))
                 timedOut = bar_index >= (p.c.x + tLimit + 1)
-                broken = not timedOut
                 pidCacheRemove(p.pid)
                 erasePattern(p)
                 debugLog(timedOut ? "Incomplete timed out" : "Incomplete invalidated", p.c.x, p.c.y, p.bull)
@@ -1265,6 +1347,8 @@ drawProjectionOverlay() =>
                     array.push(fullIpLf,l)
             else
                 clearProjectionOverlay()
+        else
+            clearProjectionOverlay()
     else
         clearProjectionOverlay()
 
@@ -1275,6 +1359,47 @@ pctColor(float v) =>
 retColor(float v) =>
     v >= 0 ? color.new(#26A69A, 20) : color.new(#EF5350, 20)
 
+writeStatsRow(table t, int r, string c0, color c0bg, string c1, color c1bg, string c2, color c2bg, string st1, float t1pct, string st2, float t2pct, string ar, float avgR, string rbull, float avgBullR, string rbear, float avgBearR, string rbullTot, float totBullR, string rbearTot, float totBearR, string tr, float totR, string srr, float avgRR, color naBg) =>
+    table.cell(t, 0, r, c0, bgcolor=c0bg, text_color=color.white, text_halign=text.align_center, text_size=size.small)
+    table.cell(t, 1, r, c1, bgcolor=c1bg, text_color=color.white, text_halign=text.align_center, text_size=size.small)
+    table.cell(t, 2, r, c2, bgcolor=c2bg, text_color=color.white, text_halign=text.align_center, text_size=size.small)
+    table.cell(t, 3, r, st1, bgcolor=not na(t1pct) ? pctColor(t1pct) : naBg, text_color=color.white, text_halign=text.align_center, text_size=size.small)
+    table.cell(t, 4, r, st2, bgcolor=not na(t2pct) ? pctColor(t2pct) : naBg, text_color=color.white, text_halign=text.align_center, text_size=size.small)
+    table.cell(t, 5, r, ar, bgcolor=not na(avgR) ? retColor(avgR) : naBg, text_color=color.white, text_halign=text.align_center, text_size=size.small)
+    table.cell(t, 6, r, rbull, bgcolor=not na(avgBullR) ? retColor(avgBullR) : naBg, text_color=color.white, text_halign=text.align_center, text_size=size.small)
+    table.cell(t, 7, r, rbear, bgcolor=not na(avgBearR) ? retColor(avgBearR) : naBg, text_color=color.white, text_halign=text.align_center, text_size=size.small)
+    table.cell(t, 8, r, rbullTot, bgcolor=not na(totBullR) ? retColor(totBullR) : naBg, text_color=color.white, text_halign=text.align_center, text_size=size.small)
+    table.cell(t, 9, r, rbearTot, bgcolor=not na(totBearR) ? retColor(totBearR) : naBg, text_color=color.white, text_halign=text.align_center, text_size=size.small)
+    table.cell(t, 10, r, tr, bgcolor=not na(totR) ? retColor(totR) : naBg, text_color=color.white, text_halign=text.align_center, text_size=size.small)
+    table.cell(t, 11, r, srr, bgcolor=not na(avgRR) ? retColor(avgRR) : naBg, text_color=color.white, text_halign=text.align_center, text_size=size.small)
+
+calcTradeReturn(bool bull, float eY, float t1, float t2, float stop, bool t1Hit, bool t2Hit, bool sHit) =>
+    float r = na
+    float rr = na
+    int addT1 = 0
+    int addT2 = 0
+    bool isClosed = false
+    hasRR = not na(stop) and not na(eY) and not na(t1)
+    if t2Hit
+        r := bull ? (((t1/eY) - 1) * 0.5) + (((t2/eY) - 1) * 0.5) : (((eY/t1) - 1) * 0.5) + (((eY/t2) - 1) * 0.5)
+        if hasRR
+            rr := math.abs(eY - t1) / math.max(math.abs(stop - eY), 0.0001)
+        addT2 := 1
+        addT1 := 1
+        isClosed := true
+    else if t1Hit
+        rT1 = bull ? (t1/eY) - 1 : (eY/t1) - 1
+        rRemain = sHit and not na(stop) ? (bull ? (stop/eY) - 1 : (eY/stop) - 1) : 0.0
+        r := (rT1 * 0.5) + (rRemain * 0.5)
+        if hasRR
+            rr := math.abs(eY - t1) / math.max(math.abs(stop - eY), 0.0001)
+        addT1 := 1
+        isClosed := true
+    else if sHit
+        r := bull ? (stop/eY) - 1 : (eY/stop) - 1
+        isClosed := true
+    [r, rr, addT1, addT2, isClosed]
+
 // backtestStatsFor: computes backtest stats for one pattern type.
 // Bull return = (exit/entry)-1. Bear return = (entry/exit)-1.
 // T2 hits use 50/50 split exit model (half at T1, half at T2).
@@ -1283,86 +1408,58 @@ retColor(float v) =>
 backtestStatsFor(tp) =>
     a1 = storageFor(true, tp)
     a2 = storageFor(false, tp)
-    float[] ra  = array.new_float(0)
-    float[] raBull = array.new_float(0)
-    float[] raBear = array.new_float(0)
-    float[] rra = array.new_float(0)
+    sumR = 0.0
+    sumBullR = 0.0
+    sumBearR = 0.0
+    rCount = 0
+    bullRCount = 0
+    bearRCount = 0
+    rrSum = 0.0
+    rrCount = 0
     t1_tot = 0
     t2_tot = 0
     closed = 0
     closedBull = 0
     closedBear = 0
 
-    if array.size(a1) > 0
-        for p in a1
-            if (not na(p.t1Hit) or p.sHit) and p.eHit
-                hasRR = not na(p.stop) and not na(p.e.y) and not na(p.t1)
-                if p.t2Hit
-                    r = ((p.t1/p.e.y - 1) * 0.5) + ((p.t2/p.e.y - 1) * 0.5)
-                    array.push(ra, r)
-                    array.push(raBull, r)
-                    if hasRR
-                        array.push(rra, math.abs(p.e.y - p.t1) / math.max(math.abs(p.stop - p.e.y), 0.0001))
-                    t2_tot += 1
-                    t1_tot += 1
-                    closed += 1
-                    closedBull += 1
-                else if p.t1Hit
-                    r = (p.t1/p.e.y) - 1
-                    array.push(ra, r)
-                    array.push(raBull, r)
-                    if hasRR
-                        array.push(rra, math.abs(p.e.y - p.t1) / math.max(math.abs(p.stop - p.e.y), 0.0001))
-                    t1_tot += 1
-                    closed += 1
-                    closedBull += 1
-                else if p.sHit
-                    r = (p.stop/p.e.y) - 1
-                    array.push(ra, r)
-                    array.push(raBull, r)
-                    closed += 1
-                    closedBull += 1
-
-    if array.size(a2) > 0
-        for p in a2
-            if (not na(p.t1Hit) or p.sHit) and p.eHit
-                hasRR = not na(p.stop) and not na(p.e.y) and not na(p.t1)
-                if p.t2Hit
-                    r = ((p.e.y/p.t1 - 1) * 0.5) + ((p.e.y/p.t2 - 1) * 0.5)
-                    array.push(ra, r)
-                    array.push(raBear, r)
-                    if hasRR
-                        array.push(rra, math.abs(p.e.y - p.t1) / math.max(math.abs(p.stop - p.e.y), 0.0001))
-                    t2_tot += 1
-                    t1_tot += 1
-                    closed += 1
-                    closedBear += 1
-                else if p.t1Hit
-                    r = (p.e.y/p.t1) - 1
-                    array.push(ra, r)
-                    array.push(raBear, r)
-                    if hasRR
-                        array.push(rra, math.abs(p.e.y - p.t1) / math.max(math.abs(p.stop - p.e.y), 0.0001))
-                    t1_tot += 1
-                    closed += 1
-                    closedBear += 1
-                else if p.sHit
-                    r = (p.e.y/p.stop) - 1
-                    array.push(ra, r)
-                    array.push(raBear, r)
-                    closed += 1
-                    closedBear += 1
+    for dir = 0 to 1
+        isBull = dir == 0
+        arr = isBull ? a1 : a2
+        if array.size(arr) > 0
+            for p in arr
+                if (not na(p.t1Hit) or p.sHit) and p.eHit
+                    if tradeLevelsValid(p, p.e.y)
+                        [r, rr, addT1, addT2, isClosed] = calcTradeReturn(isBull, p.e.y, p.t1, p.t2, p.stop, p.t1Hit == true, p.t2Hit == true, p.sHit)
+                        if isClosed and not na(r)
+                            sumR += r
+                            rCount += 1
+                            if isBull
+                                sumBullR += r
+                                bullRCount += 1
+                            else
+                                sumBearR += r
+                                bearRCount += 1
+                            if not na(rr)
+                                rrSum += rr
+                                rrCount += 1
+                            t1_tot += addT1
+                            t2_tot += addT2
+                            closed += 1
+                            if isBull
+                                closedBull += 1
+                            else
+                                closedBear += 1
+                    else
+                        debugLog("Skip stats: invalid trade geometry", p.d.x, p.d.y, p.bull)
 
     tot   = array.size(a1) + array.size(a2)
-    avgR  = array.avg(ra) * 100
-    totR  = array.sum(ra) * 100
-    avgBullR = array.avg(raBull) * 100
-    avgBearR = array.avg(raBear) * 100
-    totBullR = array.sum(raBull) * 100
-    totBearR = array.sum(raBear) * 100
-    rrCount = array.size(rra)
-    rrSum = array.sum(rra)
-    avgRR = rrCount > 0 ? (rrSum / rrCount) : float(na)
+    avgR  = safeAvg(sumR, rCount) * 100
+    totR  = sumR * 100
+    avgBullR = safeAvg(sumBullR, bullRCount) * 100
+    avgBearR = safeAvg(sumBearR, bearRCount) * 100
+    totBullR = sumBullR * 100
+    totBearR = sumBearR * 100
+    avgRR = safeAvg(rrSum, rrCount)
 
     array.push(accPatternCount, tot)
     array.push(accTradeCount, closed)
@@ -1373,15 +1470,15 @@ backtestStatsFor(tp) =>
 
     t1pct = closed > 0 ? (t1_tot / closed) * 100 : float(na)
     t2pct = closed > 0 ? (t2_tot / closed) * 100 : float(na)
-    st1   = not na(t1pct) ? str.tostring(t1pct, "#.##") + "%" : "NA"
-    st2   = not na(t2pct) ? str.tostring(t2pct, "#.##") + "%" : "NA"
-    ravg  = not na(avgR)  ? str.tostring(avgR,  "#.##") + "%" : "NA"
-    rbull = not na(avgBullR) ? str.tostring(avgBullR, "#.##") + "%" : "NA"
-    rbear = not na(avgBearR) ? str.tostring(avgBearR, "#.##") + "%" : "NA"
-    rtot  = not na(totR)  ? str.tostring(totR,  "#.##") + "%" : "NA"
+    st1   = not na(t1pct) ? pctStr(t1pct) : "NA"
+    st2   = not na(t2pct) ? pctStr(t2pct) : "NA"
+    ravg  = not na(avgR)  ? pctStr(avgR) : "NA"
+    rbull = not na(avgBullR) ? pctStr(avgBullR) : "NA"
+    rbear = not na(avgBearR) ? pctStr(avgBearR) : "NA"
+    rtot  = not na(totR)  ? pctStr(totR) : "NA"
     srr   = not na(avgRR) ? str.tostring(avgRR, "#.##")       : "NA"
-    rbullTot = not na(totBullR) ? str.tostring(totBullR, "#.##") + "%" : "NA"
-    rbearTot = not na(totBearR) ? str.tostring(totBearR, "#.##") + "%" : "NA"
+    rbullTot = not na(totBullR) ? pctStr(totBullR) : "NA"
+    rbearTot = not na(totBearR) ? pctStr(totBearR) : "NA"
 
     [str.tostring(tot), str.tostring(closed), st1, st2, ravg, rbull, rbear, rtot, srr, rbullTot, rbearTot, t1pct, t2pct, avgR, avgBullR, avgBearR, totR, totBullR, totBearR, avgRR, rrSum, rrCount, closedBull, closedBear]
 
@@ -1425,58 +1522,69 @@ printStats() =>
             rrSumAll += na(rrSum) ? 0.0 : rrSum
             rrCountAll += rrCount
             patCol = patColors(tp, true)
-            table.cell(statsTbl, 0, r, tablePatternBadge(tp),
-                 bgcolor=color.new(patCol.line, 60),
-                 text_color=color.white, text_halign=text.align_center, text_size=size.normal)
-            table.cell(statsTbl, 1, r, tot, text_color=color.white, text_halign=text.align_center, text_size=size.small)
-            table.cell(statsTbl, 2, r, trd, text_color=color.white, text_halign=text.align_center, text_size=size.small)
-            table.cell(statsTbl, 3, r, st1, bgcolor=not na(t1pct)?pctColor(t1pct):color.new(color.black,30), text_color=color.white, text_halign=text.align_center, text_size=size.small)
-            table.cell(statsTbl, 4, r, st2, bgcolor=not na(t2pct)?pctColor(t2pct):color.new(color.black,30), text_color=color.white, text_halign=text.align_center, text_size=size.small)
-            table.cell(statsTbl, 5, r, ar, bgcolor=not na(avgR)?retColor(avgR):color.new(color.black,30), text_color=color.white, text_halign=text.align_center, text_size=size.small)
-            table.cell(statsTbl, 6, r, rbull, bgcolor=not na(avgBullR)?retColor(avgBullR):color.new(color.black,30), text_color=color.white, text_halign=text.align_center, text_size=size.small)
-            table.cell(statsTbl, 7, r, rbear, bgcolor=not na(avgBearR)?retColor(avgBearR):color.new(color.black,30), text_color=color.white, text_halign=text.align_center, text_size=size.small)
-            table.cell(statsTbl, 8, r, rbullTot, bgcolor=not na(totBullR)?retColor(totBullR):color.new(color.black,30), text_color=color.white, text_halign=text.align_center, text_size=size.small)
-            table.cell(statsTbl, 9, r, rbearTot, bgcolor=not na(totBearR)?retColor(totBearR):color.new(color.black,30), text_color=color.white, text_halign=text.align_center, text_size=size.small)
-            table.cell(statsTbl, 10, r, tr, bgcolor=not na(totR)?retColor(totR):color.new(color.black,30), text_color=color.white, text_halign=text.align_center, text_size=size.small)
-            table.cell(statsTbl, 11, r, srr, bgcolor=not na(avgRR)?retColor(avgRR):color.new(color.black,30), text_color=color.white, text_halign=text.align_center, text_size=size.small)
+            writeStatsRow(statsTbl, r, tablePatternBadge(tp), color.new(patCol.line, 60), tot, color(na), trd, color(na), st1, t1pct, st2, t2pct, ar, avgR, rbull, avgBullR, rbear, avgBearR, rbullTot, totBullR, rbearTot, totBearR, tr, totR, srr, avgRR, C_NA_BG)
 
         r += 1
         totalClosed  = array.sum(accTradeCount)
-        t1Total      = totalClosed > 0 ? str.tostring((array.sum(accT1Hits) / totalClosed) * 100, "#.##") + "%" : "NA"
-        t2Total      = totalClosed > 0 ? str.tostring((array.sum(accT2Hits) / totalClosed) * 100, "#.##") + "%" : "NA"
+        t1Total      = totalClosed > 0 ? pctStr((array.sum(accT1Hits) / totalClosed) * 100) : "NA"
+        t2Total      = totalClosed > 0 ? pctStr((array.sum(accT2Hits) / totalClosed) * 100) : "NA"
         t1TotalV     = totalClosed > 0 ? (array.sum(accT1Hits) / totalClosed) * 100 : float(na)
         t2TotalV     = totalClosed > 0 ? (array.sum(accT2Hits) / totalClosed) * 100 : float(na)
         sumRtot      = not na(array.sum(accTotReturn)) ? array.sum(accTotReturn) : float(na)
         avgRtot      = (not na(sumRtot) and totalClosed > 0) ? (sumRtot / totalClosed) : float(na)
-        arTotal      = not na(avgRtot) ? str.tostring(avgRtot, "#.##") + "%" : "NA"
-        trTotal      = not na(sumRtot) ? str.tostring(sumRtot, "#.##") + "%" : "NA"
+        arTotal      = not na(avgRtot) ? pctStr(avgRtot) : "NA"
+        trTotal      = not na(sumRtot) ? pctStr(sumRtot) : "NA"
         bullAvgTotalV = bullClosedAll > 0 ? (bullRetSumAll / bullClosedAll) : float(na)
         bearAvgTotalV = bearClosedAll > 0 ? (bearRetSumAll / bearClosedAll) : float(na)
-        bullAvgTotal = not na(bullAvgTotalV) ? str.tostring(bullAvgTotalV, "#.##") + "%" : "NA"
-        bearAvgTotal = not na(bearAvgTotalV) ? str.tostring(bearAvgTotalV, "#.##") + "%" : "NA"
-        bullTotTotal = not na(bullRetSumAll) ? str.tostring(bullRetSumAll, "#.##") + "%" : "NA"
-        bearTotTotal = not na(bearRetSumAll) ? str.tostring(bearRetSumAll, "#.##") + "%" : "NA"
+        bullAvgTotal = not na(bullAvgTotalV) ? pctStr(bullAvgTotalV) : "NA"
+        bearAvgTotal = not na(bearAvgTotalV) ? pctStr(bearAvgTotalV) : "NA"
+        bullTotTotal = not na(bullRetSumAll) ? pctStr(bullRetSumAll) : "NA"
+        bearTotTotal = not na(bearRetSumAll) ? pctStr(bearRetSumAll) : "NA"
         avgRRtot     = rrCountAll > 0 ? (rrSumAll / rrCountAll) : float(na)
         str_rrTotal  = not na(avgRRtot) ? str.tostring(avgRRtot, "#.##") : "NA"
 
-        table.cell(statsTbl, 0, r, "Total", text_color=color.white, text_halign=text.align_center, text_size=size.small, bgcolor=color.new(color.gray,70))
-        table.cell(statsTbl, 1, r, str.tostring(array.sum(accPatternCount)), text_color=color.white, text_halign=text.align_center, text_size=size.small, bgcolor=color.new(color.gray,70))
-        table.cell(statsTbl, 2, r, str.tostring(totalClosed), text_color=color.white, text_halign=text.align_center, text_size=size.small, bgcolor=color.new(color.gray,70))
-        table.cell(statsTbl, 3, r, t1Total, bgcolor=not na(t1TotalV)?pctColor(t1TotalV):color.new(color.gray,70), text_color=color.white, text_halign=text.align_center, text_size=size.small)
-        table.cell(statsTbl, 4, r, t2Total, bgcolor=not na(t2TotalV)?pctColor(t2TotalV):color.new(color.gray,70), text_color=color.white, text_halign=text.align_center, text_size=size.small)
-        table.cell(statsTbl, 5, r, arTotal, bgcolor=not na(avgRtot)?retColor(avgRtot):color.new(color.gray,70), text_color=color.white, text_halign=text.align_center, text_size=size.small)
-        table.cell(statsTbl, 6, r, bullAvgTotal, bgcolor=not na(bullAvgTotalV)?retColor(bullAvgTotalV):color.new(color.gray,70), text_color=color.white, text_halign=text.align_center, text_size=size.small)
-        table.cell(statsTbl, 7, r, bearAvgTotal, bgcolor=not na(bearAvgTotalV)?retColor(bearAvgTotalV):color.new(color.gray,70), text_color=color.white, text_halign=text.align_center, text_size=size.small)
-        table.cell(statsTbl, 8, r, bullTotTotal, bgcolor=not na(bullRetSumAll)?retColor(bullRetSumAll):color.new(color.gray,70), text_color=color.white, text_halign=text.align_center, text_size=size.small)
-        table.cell(statsTbl, 9, r, bearTotTotal, bgcolor=not na(bearRetSumAll)?retColor(bearRetSumAll):color.new(color.gray,70), text_color=color.white, text_halign=text.align_center, text_size=size.small)
-        table.cell(statsTbl, 10, r, trTotal, bgcolor=not na(sumRtot)?retColor(sumRtot):color.new(color.gray,70), text_color=color.white, text_halign=text.align_center, text_size=size.small)
-        table.cell(statsTbl, 11, r, str_rrTotal, bgcolor=not na(avgRRtot)?retColor(avgRRtot):color.new(color.gray,70), text_color=color.white, text_halign=text.align_center, text_size=size.small)
+        totalBg = color.new(color.gray, 70)
+        writeStatsRow(statsTbl, r, "Total", totalBg, str.tostring(array.sum(accPatternCount)), totalBg, str.tostring(totalClosed), totalBg, t1Total, t1TotalV, t2Total, t2TotalV, arTotal, avgRtot, bullAvgTotal, bullAvgTotalV, bearAvgTotal, bearAvgTotalV, bullTotTotal, bullRetSumAll, bearTotTotal, bearRetSumAll, trTotal, sumRtot, str_rrTotal, avgRRtot, totalBg)
 
         r += 1
         keyTxt = "✅ = Success | ❌ = Failure | 🕝 = Timed out* | ⛔ = No entry* | ⏳ = In progress* \n*Not included in Success Rate/Return % statistics"
         table.cell(statsTbl, 0, r, keyTxt, text_color=color.white, text_halign=text.align_right, text_size=size.small)
         table.merge_cells(statsTbl, 0, r, 11, r)
         array.clear(accPatternCount), array.clear(accTradeCount), array.clear(accT1Hits), array.clear(accT2Hits), array.clear(accTotReturn)
+
+statsSignature() =>
+    sig = 0
+    sig += array.size(bullGart) * 2 + array.size(bearGart) * 3
+    sig += array.size(bullBat) * 5 + array.size(bearBat) * 7
+    sig += array.size(bullBfly) * 11 + array.size(bearBfly) * 13
+    sig += array.size(bullCrab) * 17 + array.size(bearCrab) * 19
+    sig += array.size(bullShark) * 23 + array.size(bearShark) * 29
+    sig += array.size(incompletePatterns) * 31
+    sig += array.size(pending) * 37
+    if array.size(pending) > 0
+        lp = array.get(pending, array.size(pending)-1)
+        st = patternState(lp)
+        sig += (lp.d.x + 1) * 41
+        sig += st * 43
+        sig += (lp.tp + 1) * 47
+        sig += lp.bull ? 53 : 59
+    sig
+
+reconcileStatsView() =>
+    nextSig = lastStatsSig
+    nextPrevShow = prevShowStats
+    if barstate.islast
+        if show_stats
+            sig = statsSignature()
+            if na(lastStatsSig) or sig != lastStatsSig or not prevShowStats
+                printStats()
+                nextSig := sig
+            nextPrevShow := true
+        else if not na(statsTbl) and statsTblRows > 0
+            if prevShowStats
+                table.clear(statsTbl, 0, 0, 11, statsTblRows-1)
+            nextPrevShow := false
+    [nextSig, nextPrevShow]
 // isValidPointD: validates a candidate D point for an incomplete pattern.
 // Checks: time window, leg symmetry (pctAsym), price structure (D beyond C in
 // correct direction), and BD/XD ratio via t.test_cd().
@@ -1491,8 +1599,7 @@ isValidPointD(p,dX,dY) =>
 
     if dX <= (incTLimit(p.x.x,p.c.x) + p.c.x)
         if ta.pat_xabcd_testSym(p.a.x-p.x.x, p.b.x-p.a.x, p.c.x-p.b.x, dX-p.c.x, pctAsym)
-            highBound = rangeHigh(bar_index-p.c.x,1)
-            lowBound = rangeLow(bar_index-p.c.x,1)
+            [highBound, lowBound] = rangeBoundsFromC(p.c.x, 1)
             if ((p.bull and dY <= lowBound) or (p.bull==false and dY >= highBound)) and ((p.bull and p.c.y >= highBound) or (p.bull==false and p.c.y <= lowBound))
                 xa = math.abs(p.x.y - p.a.y)
                 bc = math.abs(p.b.y - p.c.y)
@@ -1558,6 +1665,19 @@ tryQueuePointD(h.xabcd_harmonic src, int dX, float dY, h.xabcd_harmonic[] candid
         if not na(cand)
             queueDetectedCandidate(candidates, qx, qa, qb, qc, qtp, qbull, cand)
 
+pivotConfirmed(float s, int tb, bool isLowPivot) =>
+    bool ok = true
+    for i=0 to tb-1
+        if isLowPivot ? s[i] < s[tb] : s[i] > s[tb]
+            ok := false
+            break
+    if ok
+        for i=tb+1 to tb+tb
+            if isLowPivot ? s[i] < s[tb] : s[i] > s[tb]
+                ok := false
+                break
+    ok
+
 
 // detectPointD: checks bar at offset t_b as a local low (bullish) or high (bearish).
 // Tests all inc[] and pending[] patterns for valid D completion at that pivot.
@@ -1565,28 +1685,8 @@ tryQueuePointD(h.xabcd_harmonic src, int dX, float dY, h.xabcd_harmonic[] candid
 detectPointD() =>
     tb = effectiveValidationBars()
     x = bar_index[tb]
-    bool isLow = true
-    bool isHigh = true
-    lowSeries = low
-    highSeries = high
-    for i=0 to tb-1
-        if lowSeries[i] < lowSeries[tb]
-            isLow := false
-            break
-    if isLow
-        for i=tb+1 to tb+tb
-            if lowSeries[i] < lowSeries[tb]
-                isLow := false
-                break
-    for i=0 to tb-1
-        if highSeries[i] > highSeries[tb]
-            isHigh := false
-            break
-    if isHigh
-        for i=tb+1 to tb+tb
-            if highSeries[i] > highSeries[tb]
-                isHigh := false
-                break
+    isLow = pivotConfirmed(low, tb, true)
+    isHigh = pivotConfirmed(high, tb, false)
     if isLow or isHigh
         h.xabcd_harmonic[] new = array.new<h.xabcd_harmonic>()
         int[] qx = array.new_int()
@@ -1597,14 +1697,14 @@ detectPointD() =>
         bool[] qbull = array.new_bool()
         for p in incompletePatterns
             if isLow and p.bull
-                tryQueuePointD(p, x, lowSeries[tb], new, qx, qa, qb, qc, qtp, qbull)
+                tryQueuePointD(p, x, low[tb], new, qx, qa, qb, qc, qtp, qbull)
             if isHigh and p.bull==false
-                tryQueuePointD(p, x, highSeries[tb], new, qx, qa, qb, qc, qtp, qbull)
+                tryQueuePointD(p, x, high[tb], new, qx, qa, qb, qc, qtp, qbull)
         for p2 in pending
             if isLow and p2.bull
-                tryQueuePointD(p2, x, lowSeries[tb], new, qx, qa, qb, qc, qtp, qbull)
+                tryQueuePointD(p2, x, low[tb], new, qx, qa, qb, qc, qtp, qbull)
             if isHigh and p2.bull==false
-                tryQueuePointD(p2, x, highSeries[tb], new, qx, qa, qb, qc, qtp, qbull)
+                tryQueuePointD(p2, x, high[tb], new, qx, qa, qb, qc, qtp, qbull)
         for n in new
             if not na(n)
                 finalizePattern(n)
@@ -1699,13 +1799,14 @@ detectPointD()
 if barstate.islast
     nStatsRows = array.size(includeTps) + 3
     if na(statsTbl) or statsTblRows != nStatsRows
-        statsTbl := table.new(position.bottom_left, 12, nStatsRows, bgcolor=color.new(color.black,30), border_width=1)
+        statsTbl := table.new(position.bottom_left, 12, nStatsRows, bgcolor=C_NA_BG, border_width=1)
         statsTblRows := nStatsRows
     if not perf_gate_ui or cluster_ui_filter or array.size(hiddenClusterPids) > 0
         refreshClusterFilter()
     if not perf_gate_ui or array.size(pending) > 0
         drawProjectionOverlay()
-    if show_stats
-        printStats()
+    [nextSig, nextPrevShow] = reconcileStatsView()
+    lastStatsSig := nextSig
+    prevShowStats := nextPrevShow
     if show_fib_table
         printFibTable()
