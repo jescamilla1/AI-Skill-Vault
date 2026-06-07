@@ -216,105 +216,149 @@ export div_bear(float pS, float iS, simple int cp_length_after=2, simple int cp_
 // Harmonics
 //-----------------------------------------
 
+// (private) Shared harmonic ratio constants and display text
+var PT_GARTLEY = 1
+var PT_BAT = 2
+var PT_BUTTERFLY = 3
+var PT_CRAB = 4
+var PT_SHARK = 5
+var PT_CYPHER = 6
+var PT_ALT_BAT = 7
+var PT_DEEP_BUTTERFLY = 8
+var PT_DEEP_CRAB = 9
+
+var HR_0382 = fib.fib_precise(0.382)
+var HR_0500 = 0.5
+var HR_0618 = fib.fib_precise(0.618)
+var HR_0786 = fib.fib_precise(0.786)
+var HR_0886 = fib.fib_precise(0.886)
+var HR_1130 = 1.13
+var HR_1272 = fib.fib_precise(1.272)
+var HR_1270 = 1.27
+var HR_1414 = fib.fib_precise(1.414)
+var HR_1618 = fib.fib_precise(1.618)
+var HR_1617 = 1.617
+var HR_2000 = 2.0
+var HR_2191 = 2.191
+var HR_2240 = 2.24
+var HR_2618 = fib.fib_precise(2.618)
+var HR_3140 = 3.14
+var HR_3618 = 3.618
+
+var HR_0382_TXT = "0.382"
+var HR_0500_TXT = "0.5"
+var HR_0618_TXT = "0.618"
+var HR_0786_TXT = "0.786"
+var HR_0886_TXT = "0.886"
+var HR_1130_TXT = "1.13"
+var HR_1272_TXT = "1.272"
+var HR_1270_TXT = "1.27"
+var HR_1414_TXT = "1.414"
+var HR_1618_TXT = "1.618"
+var HR_1617_TXT = "1.617"
+var HR_2000_TXT = "2.0"
+var HR_2191_TXT = "2.191"
+var HR_2240_TXT = "2.24"
+var HR_2618_TXT = "2.618"
+var HR_3140_TXT = "3.14"
+var HR_3618_TXT = "3.618"
+
+// (private) Generic tolerance checks used by harmonic leg validators.
+ratioWithin(float rat, float target, float pErr) =>
+    rat <= target*(1+pErr/100) and rat >= target*(1-pErr/100)
+
+ratioWithinAny(float rat, float target1, float target2=na, float pErr=0.0) =>
+    ratioWithin(rat,target1,pErr) or (not na(target2) and ratioWithin(rat,target2,pErr))
+
+harmonic_abPass(int tp, float rat, float pErr) =>
+    switch tp
+        PT_GARTLEY => ratioWithin(rat,HR_0618,pErr)
+        PT_BAT => ratioWithin(rat,HR_0500,pErr)
+        PT_BUTTERFLY => ratioWithin(rat,HR_0786,pErr)
+        PT_CRAB => ratioWithin(rat,HR_0618,pErr)
+        PT_SHARK => true
+        PT_CYPHER => ratioWithinAny(rat,HR_0382,HR_0618,pErr)
+        PT_ALT_BAT => ratioWithin(rat,HR_0382,pErr)
+        PT_DEEP_BUTTERFLY => ratioWithin(rat,HR_0786,pErr)
+        PT_DEEP_CRAB => ratioWithin(rat,HR_0886,pErr)
+
+harmonic_bcPass(int tp, float rat, float pErr) =>
+    switch tp
+        PT_GARTLEY => ratioWithinAny(rat,HR_0618,HR_0786,pErr)
+        PT_BAT => ratioWithinAny(rat,HR_0500,HR_0618,pErr)
+        PT_BUTTERFLY => ratioWithinAny(rat,HR_0500,HR_0886,pErr)
+        PT_CRAB => ratioWithinAny(rat,HR_0500,HR_0618,pErr)
+        PT_SHARK => ratioWithinAny(rat,HR_1130,HR_1618,pErr)
+        PT_CYPHER => ratioWithinAny(rat,HR_1272,HR_1414,pErr)
+        PT_ALT_BAT => ratioWithinAny(rat,HR_0382,HR_0886,pErr)
+        PT_DEEP_BUTTERFLY => ratioWithinAny(rat,HR_0500,HR_0886,pErr)
+        PT_DEEP_CRAB => ratioWithinAny(rat,HR_0382,HR_0886,pErr)
+
+harmonic_cdBcPass(int tp, float rat, float pErr) =>
+    switch tp
+        PT_GARTLEY => ratioWithinAny(rat,HR_1272,HR_1618,pErr)
+        PT_BAT => ratioWithin(rat,HR_2000,pErr)
+        PT_BUTTERFLY => ratioWithin(rat,HR_1618,pErr)
+        PT_CRAB => ratioWithin(rat,HR_3140,pErr)
+        PT_SHARK => ratioWithinAny(rat,HR_1618,HR_2000,pErr)
+        PT_CYPHER => true
+        PT_ALT_BAT => ratioWithinAny(rat,HR_2000,HR_3618,pErr)
+        PT_DEEP_BUTTERFLY => ratioWithin(rat,HR_2191,pErr)
+        PT_DEEP_CRAB => ratioWithinAny(rat,HR_2618,HR_3618,pErr)
+
+harmonic_cdXaPass(int tp, float rat, float pErr) =>
+    switch tp
+        PT_GARTLEY => ratioWithin(rat,HR_0786,pErr)
+        PT_BAT => ratioWithin(rat,HR_0886,pErr)
+        PT_BUTTERFLY => ratioWithin(rat,HR_1270,pErr)
+        PT_CRAB => ratioWithin(rat,HR_1618,pErr)
+        PT_SHARK => ratioWithinAny(rat,HR_0886,HR_1130,pErr)
+        PT_CYPHER => true
+        PT_ALT_BAT => ratioWithin(rat,HR_1130,pErr)
+        PT_DEEP_BUTTERFLY => ratioWithin(rat,HR_1617,pErr)
+        PT_DEEP_CRAB => ratioWithin(rat,HR_1618,pErr)
+
+harmonic_cdXcPass(int tp, float rat, float pErr) =>
+    switch tp
+        PT_CYPHER => ratioWithin(rat,HR_0786,pErr)
+        => true
+
 // (private) Validate AB leg of XABCD
 test_ab(ab,xa,pErr,p_types) =>
-    var f618 = fib.fib_precise(0.618)
-    var f382 = fib.fib_precise(0.382)
-    var f786 = fib.fib_precise(0.786)
     t0=false,t1=false,t2=false,t3=false,t4=false,t5=false
     rat = ab/xa
-    // gartley
-    if array.get(p_types,0)
-        t0 := rat <= f618*(1+pErr/100) and rat >= f618*(1-pErr/100) ? true : false  // within acceptable % error
-    // bat
-    if array.get(p_types,1)
-        t1 := (rat <= f382*(1+pErr/100) and rat >= f382*(1-pErr/100)) or (rat <= .5*(1+pErr/100) and rat >= .5*(1-pErr/100)) ? true : false
-    // butterfly
-    if array.get(p_types,2)
-        t2 :=  rat <= f786*(1+pErr/100) and rat >= f786*(1-pErr/100) ? true : false
-    // crab
-    if array.get(p_types,3)
-        t3 := (rat <= f382*(1+pErr/100) and rat >= f382*(1-pErr/100)) or (rat <= f618*(1+pErr/100) and rat >= f618*(1-pErr/100)) ? true : false
-    // shark
-    if array.get(p_types,4)
-        t4 :=  rat < 1 // no AB validation defined for shark
-    // cypher
-    if array.get(p_types,5)
-        t5 := (rat <= f382*(1+pErr/100) and rat >= f382*(1-pErr/100)) or (rat <= f618*(1+pErr/100) and rat >= f618*(1-pErr/100)) ? true : false
+    t0 := array.get(p_types,0) and harmonic_abPass(1,rat,pErr)
+    t1 := array.get(p_types,1) and harmonic_abPass(2,rat,pErr)
+    t2 := array.get(p_types,2) and harmonic_abPass(3,rat,pErr)
+    t3 := array.get(p_types,3) and harmonic_abPass(4,rat,pErr)
+    t4 := array.get(p_types,4) and harmonic_abPass(5,rat,pErr)
+    t5 := array.get(p_types,5) and harmonic_abPass(6,rat,pErr)
     [t0,t1,t2,t3,t4,t5]
 
 // (private) Validate BC leg of XABCD
 test_bc(bc,ab,pErr,p_types) =>
-    var f382 = fib.fib_precise(0.382)
-    var f886 = fib.fib_precise(0.886)
-    var f1618 = fib.fib_precise(1.618)
-    var f1272 = fib.fib_precise(1.272)
-    var f1414 = fib.fib_precise(1.414)
     t0=false,t1=false,t2=false,t3=false,t4=false,t5=false
     rat = bc/ab
-    pass = (rat <= f886*(1+pErr/100) and rat >= f886*(1-pErr/100)) or (rat <= f382*(1+pErr/100) and rat >=f382*(1-pErr/100)) ? true : false
-    // gartley
-    if array.get(p_types,0)
-        t0 := pass
-    // bat
-    if array.get(p_types,1)
-        t1 := pass
-    // butterfly
-    if array.get(p_types,2)
-        t2 := pass
-    // crab
-    if array.get(p_types,3)
-        t3 := pass
-    // shark
-    if array.get(p_types,4)
-        t4 := (rat <= 1.13*(1+pErr/100) and rat >= 1.13*(1-pErr/100)) or (rat <= f1618*(1+pErr/100) and rat >=f1618*(1-pErr/100))
-    // cypher
-    if array.get(p_types,5)
-        t5 := (rat <= f1272*(1+pErr/100) and rat >= f1272*(1-pErr/100)) or (rat <= f1414*(1+pErr/100) and rat >=f1414*(1-pErr/100))
+    t0 := array.get(p_types,0) and harmonic_bcPass(1,rat,pErr)
+    t1 := array.get(p_types,1) and harmonic_bcPass(2,rat,pErr)
+    t2 := array.get(p_types,2) and harmonic_bcPass(3,rat,pErr)
+    t3 := array.get(p_types,3) and harmonic_bcPass(4,rat,pErr)
+    t4 := array.get(p_types,4) and harmonic_bcPass(5,rat,pErr)
+    t5 := array.get(p_types,5) and harmonic_bcPass(6,rat,pErr)
     [t0,t1,t2,t3,t4,t5]
 
 //@function Validate CD leg of XABCD
 export test_cd(float cd, float bc, float xa, float xc, float ad, float pErr, bool[] p_types) =>
-    var f1618 = fib.fib_precise(1.618)
-    var f2618 = fib.fib_precise(2.618)
-    var f786 = fib.fib_precise(0.786)
-    var f886 = fib.fib_precise(0.886)
-    var f1272 = fib.fib_precise(1.272)
     t0=false,t1=false,t2=false,t3=false,t4=false,t5=false
     rat = cd/bc
     rat2 = ad/xa
     rat3 = cd/xc
-    // test D against both BC and XA legs
-    // gartley
-    if array.get(p_types,0)
-        bc_test = (rat <= f1272*(1+pErr/100) and rat >= f1272*(1-pErr/100)) or (rat <= f1618*(1+pErr/100) and rat >= f1618*(1-pErr/100))
-        xa_test = rat2 <= f786*(1+pErr/100) and rat2 >= f786*(1-pErr/100)
-        t0 :=  bc_test and xa_test ? true : false
-    // bat
-    if array.get(p_types,1)
-        bc_test = (rat <= f1618*(1+pErr/100) and rat >= f1618*(1-pErr/100)) or (rat <= f2618*(1+pErr/100) and rat >= f2618*(1-pErr/100))
-        xa_test = rat2 <= f886*(1+pErr/100) and rat2 >= f886*(1-pErr/100)
-        t1 := bc_test and xa_test ? true : false
-    // butterfly
-    if array.get(p_types,2)
-        bc_test = (rat <= f1618*(1+pErr/100) and rat >= f1618*(1-pErr/100)) or (rat <= f2618*(1+pErr/100) and rat >= f2618*(1-pErr/100))
-        xa_test = (rat2 <= f1272*(1+pErr/100) and rat2 >= f1272*(1-pErr/100)) or (rat2 <= f1618*(1+pErr/100) and rat2 >= f1618*(1-pErr/100))
-        t2 := bc_test and xa_test ? true : false
-    // crab
-    if array.get(p_types,3)
-        bc_test = (rat <= 2.24*(1+pErr/100) and rat >= 2.24*(1-pErr/100)) or (rat <= 3.618*(1+pErr/100) and rat >= 3.618*(1-pErr/100))
-        xa_test = rat2 <= f1618*(1+pErr/100) and rat2 >= f1618*(1-pErr/100)
-        t3 := bc_test and xa_test ? true : false
-    // shark
-    if array.get(p_types,4)
-        bc_test = (rat <= f1618*(1+pErr/100) and rat >= f1618*(1-pErr/100)) or (rat <= 2.24*(1+pErr/100) and rat >= 2.24*(1-pErr/100))
-        xa_test = (rat2 <= f886*(1+pErr/100) and rat2 >= f886*(1-pErr/100)) or (rat2 <= 1.13*(1+pErr/100) and rat2 >= 1.13*(1-pErr/100))
-        t4 := bc_test and xa_test ? true : false
-    // cypher
-    if array.get(p_types,5)
-        bc_test = true
-        xc_test = rat3 <= f786*(1+pErr/100) and rat3 >= f786*(1-pErr/100)   // cypher point D retraces XC
-        t5 := bc_test and xc_test ? true : false
+    t0 := array.get(p_types,0) and harmonic_cdBcPass(PT_GARTLEY,rat,pErr) and harmonic_cdXaPass(PT_GARTLEY,rat2,pErr)
+    t1 := array.get(p_types,1) and harmonic_cdBcPass(PT_BAT,rat,pErr) and harmonic_cdXaPass(PT_BAT,rat2,pErr)
+    t2 := array.get(p_types,2) and harmonic_cdBcPass(PT_BUTTERFLY,rat,pErr) and harmonic_cdXaPass(PT_BUTTERFLY,rat2,pErr)
+    t3 := array.get(p_types,3) and harmonic_cdBcPass(PT_CRAB,rat,pErr) and harmonic_cdXaPass(PT_CRAB,rat2,pErr)
+    t4 := array.get(p_types,4) and harmonic_cdBcPass(PT_SHARK,rat,pErr) and harmonic_cdXaPass(PT_SHARK,rat2,pErr)
+    t5 := array.get(p_types,5) and harmonic_cdBcPass(PT_CYPHER,rat,pErr) and harmonic_cdXcPass(PT_CYPHER,rat3,pErr)
     //
     [t0,t1,t2,t3,t4,t5]
 
@@ -331,6 +375,39 @@ export pat_xabcd_testSym(int xax, int abx, int bcx, int cdx=na, float pAsym=500.
         false
     else
         true
+
+// @function Validate a single harmonic pattern type by ID.
+// Use PT_* constants (e.g., PT_ALT_BAT, PT_DEEP_BUTTERFLY, PT_DEEP_CRAB).
+export harmonic_xabcd_validateByType(int tp, int xX,float xY,int aX,float aY,int bX,float bY,int cX,float cY,int dX,float dY,float pErr=20,float pAsym=250) =>
+    xa = math.abs(xY-aY)
+    xax = math.abs(xX-aX)
+    ab = math.abs(aY-bY)
+    abx = math.abs(aX-bX)
+    bc = math.abs(bY-cY)
+    bcx = math.abs(bX-cX)
+    cd = math.abs(cY-dY)
+    ad = math.abs(aY-dY)
+    xc = math.abs(xY-cY)
+    cdx = math.abs(cX-dX)
+
+    if pat_xabcd_testSym(xax,abx,bcx,cdx,pAsym)==false
+        false
+    else
+        harmonic_abPass(tp,ab/xa,pErr) and harmonic_bcPass(tp,bc/ab,pErr) and harmonic_cdBcPass(tp,cd/bc,pErr) and harmonic_cdXaPass(tp,ad/xa,pErr) and harmonic_cdXcPass(tp,cd/xc,pErr)
+
+// @function Validate first 3 legs of a single harmonic pattern type by ID.
+export harmonic_xabcd_validateIncompleteByType(int tp, int xX,float xY,int aX,float aY,int bX,float bY,int cX,float cY,float pErr=30,float pAsym=75) =>
+    xa = math.abs(xY-aY)
+    xax = math.abs(xX-aX)
+    ab = math.abs(aY-bY)
+    abx = math.abs(aX-bX)
+    bc = math.abs(bY-cY)
+    bcx = math.abs(bX-cX)
+
+    if pat_xabcd_testSym(xax,abx,bcx,na,pAsym)==false
+        false
+    else
+        harmonic_abPass(tp,ab/xa,pErr) and harmonic_bcPass(tp,bc/ab,pErr)
 
 // @function Validate harmonic XABCD pattern
 //
@@ -438,6 +515,90 @@ export harmonic_xabcd_validateIncomplete(int xX,float xY,int aX,float aY,int bX,
         flag = t1 or t2 or t3 or t4 or t5 or t6
         [flag,t1,t2,t3,t4,t5,t6]
 
+harmonic_xabcd_przRatios(int type=1) =>
+    float bc_u_rat = na, float bc_l_rat = na
+    float xa_u_rat = na, float xa_l_rat = na
+    float xc_u_rat = na
+    if type == 1 // Gartley
+        bc_u_rat := HR_1272
+        bc_l_rat := HR_1618
+        xa_u_rat := HR_0786
+    else if type == 2 // Bat
+        bc_u_rat := HR_1618
+        bc_l_rat := HR_2618
+        xa_u_rat := HR_0886
+    else if type == 3 // Butterfly
+        bc_u_rat := HR_1618
+        bc_l_rat := HR_1618
+        xa_u_rat := HR_1270
+    else if type == 4 // Crab
+        bc_u_rat := HR_3140
+        bc_l_rat := HR_3140
+        xa_u_rat := HR_1618
+    else if type == 5 // Shark
+        bc_u_rat := HR_1618
+        bc_l_rat := HR_2000
+        xa_u_rat := HR_0886
+        xa_l_rat := HR_1130
+    else if type == 6 // Cypher
+        xc_u_rat := HR_0786
+    else if type == 7 // Alt Bat
+        bc_u_rat := HR_2000
+        bc_l_rat := HR_3618
+        xa_u_rat := HR_1130
+    else if type == 8 // Deep Butterfly
+        bc_u_rat := HR_2191
+        bc_l_rat := HR_2191
+        xa_u_rat := HR_1617
+    else if type == 9 // Deep Crab
+        bc_u_rat := HR_2618
+        bc_l_rat := HR_3618
+        xa_u_rat := HR_1618
+    [bc_u_rat, bc_l_rat, xa_u_rat, xa_l_rat, xc_u_rat]
+
+harmonic_xabcd_fibDispFromType(int tp) =>
+    rb = switch tp
+        1 => HR_0618_TXT
+        2 => HR_0500_TXT
+        3 => HR_0786_TXT
+        4 => HR_0382_TXT + " | " + HR_0618_TXT
+        5 => "Any"
+        6 => HR_0382_TXT + " | " + HR_0618_TXT
+        7 => HR_0382_TXT
+        8 => HR_0786_TXT
+        9 => HR_0886_TXT
+    rc = switch tp
+        1 => HR_0618_TXT + " | " + HR_0786_TXT
+        2 => HR_0500_TXT + " | " + HR_0618_TXT
+        3 => HR_0500_TXT + " | " + HR_0886_TXT
+        4 => HR_0500_TXT + " | " + HR_0618_TXT
+        5 => HR_1130_TXT + " | " + HR_1618_TXT
+        6 => HR_1272_TXT + " | " + HR_1414_TXT
+        7 => HR_0382_TXT + " | " + HR_0886_TXT
+        8 => HR_0500_TXT + " | " + HR_0886_TXT
+        9 => HR_0382_TXT + " | " + HR_0886_TXT
+    rd1 = switch tp
+        1 => HR_1272_TXT + " | " + HR_1618_TXT
+        2 => HR_2000_TXT
+        3 => HR_1618_TXT
+        4 => HR_3140_TXT
+        5 => HR_1618_TXT + " | " + HR_2000_TXT
+        6 => "NA"
+        7 => HR_2000_TXT + " | " + HR_3618_TXT
+        8 => HR_2191_TXT
+        9 => HR_2618_TXT + " | " + HR_3618_TXT
+    rd2 = switch tp
+        1 => HR_0786_TXT
+        2 => HR_0886_TXT
+        3 => HR_1270_TXT
+        4 => HR_1618_TXT
+        5 => HR_0886_TXT + " | " + HR_1130_TXT
+        6 => HR_0786_TXT
+        7 => HR_1130_TXT
+        8 => HR_1617_TXT
+        9 => HR_1618_TXT
+    [rb,rc,rd1,rd2]
+
 // @function Get the potential reversal zone (PRZ) levels of a harmonic XABCD pattern
 //
 // @param type Harmonic pattern type (int - 1 = Gartley, 2 = Bat, 3 = Butterfly, 4 = Crab, 5 = Shark, 6 = Cypher)
@@ -453,40 +614,22 @@ export harmonic_xabcd_validateIncomplete(int xX,float xY,int aX,float aY,int bX,
 //      xa_l = farthest XA retracement/extension level (or na if not applicable)
 //
 export harmonic_xabcd_prz(int type=1, float xY, float aY, float bY, float cY) =>
-    var f1618 = fib.fib_precise(1.618)
-    var f2618 = fib.fib_precise(2.618)
-    var f786 = fib.fib_precise(0.786)
-    var f886 = fib.fib_precise(0.886)
-    var f1272 = fib.fib_precise(1.272)
     float bc_u = na, float bc_l = na
     float xa_u = na, float xa_l = na
     bc = cY-bY
     xa = aY-xY
     xc = cY-xY
-    if type == 1 // Gartley
-        bc_u := cY - (f1272*bc)
-        bc_l := cY - (f1618*bc)
-        xa_u := aY - (f786*xa)
-    else if type == 2 // Bat
-        bc_u := cY - (f1618*bc)
-        bc_l := cY - (f2618*bc)
-        xa_u := aY - (f886*xa)
-    else if type == 3 // Butterfly
-        bc_u := cY - (f1618*bc)
-        bc_l := cY - (f2618*bc)
-        xa_u := aY - (f1272*xa)
-        xa_l := aY - (f1618*xa)
-    else if type == 4 // Crab
-        bc_u := cY - (2.24*bc)
-        bc_l := cY - (3.618*bc)
-        xa_u := aY - (f1618*xa)
-    else if type == 5 // Shark
-        bc_u := cY - (f1618*bc)
-        bc_l := cY - (2.24*bc)
-        xa_u := aY - (f886*xa)
-        xa_l := aY - (1.13*xa)
-    else if type == 6 // Cypher
-        xa_u := cY - (f786*xc)  // cypher uses retracement of XC
+    [bc_u_rat, bc_l_rat, xa_u_rat, xa_l_rat, xc_u_rat] = harmonic_xabcd_przRatios(type)
+    if not na(bc_u_rat)
+        bc_u := cY - (bc_u_rat*bc)
+    if not na(bc_l_rat)
+        bc_l := cY - (bc_l_rat*bc)
+    if not na(xa_u_rat)
+        xa_u := aY - (xa_u_rat*xa)
+    if not na(xa_l_rat)
+        xa_l := aY - (xa_l_rat*xa)
+    if not na(xc_u_rat)
+        xa_u := cY - (xc_u_rat*xc)
     // if type==6
     //     xa_u := xa_u > 0 ? xa_u : 0
     // else
@@ -574,50 +717,58 @@ export harmonic_xabcd_przScore(float xY,float aY,float l1=na,float l2=na,float l
 // @returns [r,e]
 //
 export harmonic_xabcd_rAndE(int type, string l, float l1, float l2) =>
-    var f1618 = fib.fib_precise(1.618)
-    var f2618 = fib.fib_precise(2.618)
-    var f786 = fib.fib_precise(0.786)
-    var f886 = fib.fib_precise(0.886)
-    var f1272 = fib.fib_precise(1.272)
-    var f618 = fib.fib_precise(0.618)
-    var f382 = fib.fib_precise(0.382)
-    var f1414 = fib.fib_precise(1.414)
     float r = na
     float e = na
     if l=="xab"
         r := math.abs(l1)/math.abs(l2)
         e := switch type
-            1 => math.abs(1-(r/f618))
-            2 => math.min(math.abs(1-(r/f382)),math.abs(1-(r/.5)))
-            3 => math.abs(1-(r/f786))
-            4 => math.min(math.abs(1-(r/f382)),math.abs(1-(r/f618)))
-            5 => na
-            6 => math.min(math.abs(1-(r/f382)),math.abs(1-(r/f618)))
+            PT_GARTLEY => math.abs(1-(r/HR_0618))
+            PT_BAT => math.abs(1-(r/HR_0500))
+            PT_BUTTERFLY => math.abs(1-(r/HR_0786))
+            PT_CRAB => math.abs(1-(r/HR_0618))
+            PT_SHARK => na
+            PT_CYPHER => math.min(math.abs(1-(r/HR_0382)),math.abs(1-(r/HR_0618)))
+            PT_ALT_BAT => math.abs(1-(r/HR_0382))
+            PT_DEEP_BUTTERFLY => math.abs(1-(r/HR_0786))
+            PT_DEEP_CRAB => math.abs(1-(r/HR_0886))
     else if l=="abc"
         r := math.abs(l1)/math.abs(l2)
         e := switch type
-            5 => math.min(math.abs(1-(r/1.13)),math.abs(1-(r/f1618)))
-            6 => math.min(math.abs(1-(r/f1272)),math.abs(1-(r/f1414)))
-            => math.min(math.abs(1-(r/f382)),math.abs(1-(r/f886)))   
+            PT_GARTLEY => math.min(math.abs(1-(r/HR_0618)),math.abs(1-(r/HR_0786)))
+            PT_BAT => math.min(math.abs(1-(r/HR_0500)),math.abs(1-(r/HR_0618)))
+            PT_BUTTERFLY => math.min(math.abs(1-(r/HR_0500)),math.abs(1-(r/HR_0886)))
+            PT_CRAB => math.min(math.abs(1-(r/HR_0500)),math.abs(1-(r/HR_0618)))
+            PT_SHARK => math.min(math.abs(1-(r/HR_1130)),math.abs(1-(r/HR_1618)))
+            PT_CYPHER => math.min(math.abs(1-(r/HR_1272)),math.abs(1-(r/HR_1414)))
+            PT_ALT_BAT => math.min(math.abs(1-(r/HR_0382)),math.abs(1-(r/HR_0886)))
+            PT_DEEP_BUTTERFLY => math.min(math.abs(1-(r/HR_0500)),math.abs(1-(r/HR_0886)))
+            PT_DEEP_CRAB => math.min(math.abs(1-(r/HR_0382)),math.abs(1-(r/HR_0886)))
+            => math.min(math.abs(1-(r/HR_0382)),math.abs(1-(r/HR_0886)))   
     else if l=="bcd"
         r := math.abs(l1)/math.abs(l2)
         e := switch type
-            1 => math.min(math.abs(1-(r/f1272)),math.abs(1-(r/f1618)))
-            2 => math.min(math.abs(1-(r/f1618)),math.abs(1-(r/f2618)))
-            3 => math.min(math.abs(1-(r/f1618)),math.abs(1-(r/f2618)))
-            4 => math.min(math.abs(1-(r/2.24)),math.abs(1-(r/3.618)))
-            5 => math.min(math.abs(1-(r/f1618)),math.abs(1-(r/2.24)))
-            6 => na
+            PT_GARTLEY => math.min(math.abs(1-(r/HR_1272)),math.abs(1-(r/HR_1618)))
+            PT_BAT => math.abs(1-(r/HR_2000))
+            PT_BUTTERFLY => math.abs(1-(r/HR_1618))
+            PT_CRAB => math.abs(1-(r/HR_3140))
+            PT_SHARK => math.min(math.abs(1-(r/HR_1618)),math.abs(1-(r/HR_2000)))
+            PT_CYPHER => na
+            PT_ALT_BAT => math.min(math.abs(1-(r/HR_2000)),math.abs(1-(r/HR_3618)))
+            PT_DEEP_BUTTERFLY => math.abs(1-(r/HR_2191))
+            PT_DEEP_CRAB => math.min(math.abs(1-(r/HR_2618)),math.abs(1-(r/HR_3618)))
                
     else if l=="xad"
         r := math.abs(l1)/math.abs(l2)
         e := switch type
-            1 => math.abs(1-(r/f786))
-            2 => math.abs(1-(r/f886))
-            3 => math.min(math.abs(1-(r/f1272)),math.abs(1-(r/f1618)))
-            4 => math.abs(1-(r/f1618))
-            5 => math.min(math.abs(1-(r/f886)),math.abs(1-(r/1.13)))
-            6 => math.abs(1-(r/f786))
+            PT_GARTLEY => math.abs(1-(r/HR_0786))
+            PT_BAT => math.abs(1-(r/HR_0886))
+            PT_BUTTERFLY => math.abs(1-(r/HR_1270))
+            PT_CRAB => math.abs(1-(r/HR_1618))
+            PT_SHARK => math.min(math.abs(1-(r/HR_0886)),math.abs(1-(r/HR_1130)))
+            PT_CYPHER => math.abs(1-(r/HR_0786))
+                PT_ALT_BAT => math.abs(1-(r/HR_1130))
+                PT_DEEP_BUTTERFLY => math.abs(1-(r/HR_1617))
+                PT_DEEP_CRAB => math.abs(1-(r/HR_1618))
     [r,e]
 
 // @function Get the avg retracement ratio % error 
@@ -748,7 +899,7 @@ test_cd_custom(cd,cdx,bc,xa,xc,ad,bcd,xad,xcd,pErr) =>
     // test D against both BC, XA, and/or XC legs
     bc_test = na(bcd) ? true : rat <= bcd*(1+pErr/100) and rat >= bcd*(1-pErr/100)
     xa_test = na(xad) ? true : rat2 <= xad*(1+pErr/100) and rat2 >= xad*(1-pErr/100)
-    xc_test = na(xcd) ? true : rat3 <= xcd*(1+pErr/100) and rat2 >= xcd*(1-pErr/100)
+    xc_test = na(xcd) ? true : rat3 <= xcd*(1+pErr/100) and rat3 >= xcd*(1-pErr/100)
     bc_test and xa_test and xc_test
     
 
@@ -950,38 +1101,7 @@ export harmonic_xabcd_stop(string stop, float stopPct, bool bull, float xY, floa
 
 // @function Get fib ratio display text 
 export harmonic_xabcd_fibDispTxt(int tp) =>
-    rb = switch tp
-        1 => "0.618"
-        2 => "0.382 | 0.5"
-        3 => "0.786"
-        4 => "0.382 | 0.618"
-        5 => "NA"
-        6 => "0.382 | 0.618"
-    //
-    rc = switch tp
-        1 => "0.382 | 0.886"
-        2 => "0.382 | 0.886"
-        3 => "0.382 | 0.886"
-        4 => "0.382 | 0.886"
-        5 => "1.13 | 1.618"
-        6 => "1.272 | 1.414"
-    //
-    rd1 = switch tp
-        1 => "1.272 | 1.618"
-        2 => "1.618 | 2.618"
-        3 => "1.618 | 2.618"
-        4 => "2.24 | 3.618"
-        5 => "1.618 | 2.24"
-        6 => "NA"
-    //
-    rd2 = switch tp
-        1 => "0.786"
-        2 => "0.886"
-        3 => "1.272 | 1.618"
-        4 => "1.618"
-        5 => "0.886 | 1.13"
-        6 => "0.786"
-    [rb,rc,rd1,rd2]
+    harmonic_xabcd_fibDispFromType(tp)
 
 // @function Get pattern symbol
 export harmonic_xabcd_symbol(int tp) =>
@@ -992,6 +1112,9 @@ export harmonic_xabcd_symbol(int tp) =>
         4 => "🦀"
         5 => "🦈"
         6 => "Ƈ"
+        7 => "AB"
+        8 => "DBF"
+        9 => "DCR"
         => ""
 
 //-----------------------------------------
