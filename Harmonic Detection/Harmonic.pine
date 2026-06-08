@@ -21,6 +21,8 @@ var pctAsym      = input.float(2000.0, "Allowed leg length asymmetry %", step=1.
 var tLimitMult   = input.float(3, "Pattern time limit", group="01. Detection", step=.1, minval=.1, tooltip="Target timeout in pattern lengths (X->D). Timed-out patterns are excluded from stats.")
 var pendingMaxBars = input.int(0, "Hard pending cap bars (0=off)", minval=0, maxval=5000, group="01. Detection", tooltip="Absolute pending cap after D. 0 disables. Effective cap is min(dynamic, cap).")
 var incompleteMaxBars = input.int(0, "Hard incomplete cap bars (0=off)", minval=0, maxval=5000, group="01. Detection", tooltip="Absolute incomplete wait cap after C. 0 disables. Effective cap is min(dynamic, cap).")
+var reject_nonpositive_proj_d = input.bool(true, "Reject projected D <= 0", group="01. Detection", tooltip="Skip incomplete patterns whose projected D is non-positive.")
+var proj_d_max_ext_mult = input.float(3.0, "Projected D max extension x range (0=off)", minval=0.0, step=0.1, group="01. Detection", tooltip="Reject incompletes if projected D is farther than this multiple of XABC range from point C.")
 var min_pl       = input.int(8, "Min pivot length", minval=3, maxval=20, group="01. Detection", tooltip="Minimum bars per pivot side. Lower = more micro patterns.")
 var w_p          = input.float(2.0, "Weight of PRZ level confluence", step=.1, minval=0.0, group="01. Detection", tooltip="Score weight for PRZ-level confluence.")
 var w_d          = input.float(3.0, "Weight of point D / PRZ level confluence", step=.1, minval=0.0, group="01. Detection", tooltip="Score weight for D proximity to PRZ.")
@@ -98,7 +100,6 @@ var lifecycle_guard_strict = input.bool(true, "Lifecycle strict guard", group="0
 
 
 // ─── VARS ──────────────────────────────────────────────────
-var bool nanRepairDone = false
 var color[] bullBearBase = array.new_color(0)
 var color[] patternBase = array.new_color(0)
 var int[] includeTps = array.new_int()
@@ -177,11 +178,9 @@ var h.xabcd_harmonic[] incompletePatterns = array.new<h.xabcd_harmonic>()
 var label[]            debugLabels       = array.new_label(0)
 var string[]           legMidKeys        = array.new_string(0)
 var label[]            legMidLabels      = array.new_label(0)
+var string[]           trackedFillKeys   = array.new_string(0)
+var linefill[]         trackedFills      = array.new_linefill(0)
 var string[] hiddenClusterPids = array.new_string(0)
-var string[] customFillKeys = array.new_string(0)
-var linefill[] customFills = array.new_linefill(0)
-var string[] customLineKeys = array.new_string(0)
-var line[] customLines = array.new_line(0)
 var string[] pidCache = array.new_string(0)
 
 var int[]   accPatternCount = array.new_int(0)
@@ -230,22 +229,6 @@ deleteLegMidByKey(string key) =>
                 array.remove(legMidKeys, idx)
                 label.delete(removedLabel)
                 break
-
-deleteLegMidAtPoint(string leg, int x, float y) =>
-    n = array.size(legMidKeys)
-    if n > 0
-        for i=0 to n-1
-            idx = n-1-i
-            k = array.get(legMidKeys, idx)
-            parts = str.split(k, "|")
-            kLeg = array.size(parts) > 1 ? array.get(parts, 1) : ""
-            lb = array.get(legMidLabels, idx)
-            sameX = label.get_x(lb) == x
-            sameY = math.abs(label.get_y(lb) - y) <= (syminfo.mintick * 2.0)
-            if kLeg == leg and sameX and sameY
-                removedLabel = array.remove(legMidLabels, idx)
-                array.remove(legMidKeys, idx)
-                label.delete(removedLabel)
 
 patternIndexByPid(h.xabcd_harmonic[] arr, string pid) =>
     idx = -1
@@ -314,47 +297,17 @@ drawLegMidLabel(string pid, string legKey, string txt, int x1, float y1, int x2,
     array.push(legMidKeys, key)
     array.push(legMidLabels, lb)
 
-customFillKey(string pid, int legIdx) =>
-    pid + "|F|" + str.tostring(legIdx)
-
-customLineKey(string pid, int legIdx) =>
-    pid + "|L|" + str.tostring(legIdx)
-
-clearCustomLinesForPid(string pid) =>
-    n = array.size(customLineKeys)
-    if n > 0
-        pref = pid + "|L|"
-        for i=0 to n-1
-            idx = n-1-i
-            k = array.get(customLineKeys, idx)
-            if str.startswith(k, pref)
-                ln = array.remove(customLines, idx)
-                array.remove(customLineKeys, idx)
-                line.delete(ln)
-    0
-
-trackCustomLine(string pid, int legIdx, line ln) =>
-    array.push(customLineKeys, customLineKey(pid, legIdx))
-    array.push(customLines, ln)
-    0
-
-clearCustomFillsForPid(string pid) =>
-    n = array.size(customFillKeys)
-    if n > 0
-        pref = pid + "|F|"
-        for i=0 to n-1
-            idx = n-1-i
-            k = array.get(customFillKeys, idx)
-            if str.startswith(k, pref)
-                lf = array.remove(customFills, idx)
-                array.remove(customFillKeys, idx)
-                linefill.delete(lf)
-    0
-
-trackCustomFill(string pid, int legIdx, linefill lf) =>
-    array.push(customFillKeys, customFillKey(pid, legIdx))
-    array.push(customFills, lf)
-    0
+tpToIdx(int tp) =>
+    switch tp
+        1 => 0
+        2 => 1
+        3 => 2
+        4 => 3
+        5 => 4
+        7 => 5
+        8 => 6
+        9 => 7
+        => -1
 
 ratioTxt(float r) =>
     na(r) ? "NA" : str.tostring(r, "#.###")
@@ -384,16 +337,8 @@ safeArrayColor(color[] a, int idx, color fallback) =>
     idx >= 0 and idx < array.size(a) ? array.get(a, idx) : fallback
 
 patColors(int tp, bool bull) =>
-    perPatternBase = switch tp
-        1 => c_gart_base
-        2 => c_bat_base
-        3 => c_bfly_base
-        4 => c_crab_base
-        5 => c_shark_base
-        7 => c_altbat_base
-        8 => c_dbfly_base
-        9 => c_dcrab_base
-        => c_gart_base
+    idx = tpToIdx(tp)
+    perPatternBase = safeArrayColor(patternBase, idx >= 0 ? idx : 0, c_gart_base)
     bullBear = bull ? safeArrayColor(bullBearBase, 0, c_bull_base) : safeArrayColor(bullBearBase, 1, c_bear_base)
     base = use_per_pattern ? perPatternBase : bullBear
     txtBase = use_per_pattern ? base : color.white
@@ -415,64 +360,124 @@ lineConnectsByX(ln, ax, bx) =>
     x2 = line.get_x2(ln)
     (x1 == ax and x2 == bx) or (x1 == bx and x2 == ax)
 
-findLegLineIdx(pat, ls, leg) =>
-    idx = -1
+legLineByEndpoints(pat, ls, int legCode, bool useXOnly=false) =>
+    line found = na
     n = array.size(ls)
     if n > 0
         for i=0 to n-1
             ln = array.get(ls, i)
-            match = switch leg
-                "XA" => lineConnects(ln, pat.x.x, pat.x.y, pat.a.x, pat.a.y)
-                "AB" => lineConnects(ln, pat.a.x, pat.a.y, pat.b.x, pat.b.y)
-                "BC" => lineConnects(ln, pat.b.x, pat.b.y, pat.c.x, pat.c.y)
-                "CD" => lineConnects(ln, pat.c.x, pat.c.y, pat.d.x, pat.d.y)
+            match = switch legCode
+                0 => useXOnly ? lineConnectsByX(ln, pat.x.x, pat.a.x) : lineConnects(ln, pat.x.x, pat.x.y, pat.a.x, pat.a.y)
+                1 => useXOnly ? lineConnectsByX(ln, pat.a.x, pat.b.x) : lineConnects(ln, pat.a.x, pat.a.y, pat.b.x, pat.b.y)
+                2 => useXOnly ? lineConnectsByX(ln, pat.b.x, pat.c.x) : lineConnects(ln, pat.b.x, pat.b.y, pat.c.x, pat.c.y)
+                3 => useXOnly ? lineConnectsByX(ln, pat.c.x, pat.d.x) : lineConnects(ln, pat.c.x, pat.c.y, pat.d.x, pat.d.y)
                 => false
             if match
-                idx := i
+                found := ln
                 break
-        if idx < 0
-            for i=0 to n-1
-                ln = array.get(ls, i)
-                matchByX = switch leg
-                    "XA" => lineConnectsByX(ln, pat.x.x, pat.a.x)
-                    "AB" => lineConnectsByX(ln, pat.a.x, pat.b.x)
-                    "BC" => lineConnectsByX(ln, pat.b.x, pat.c.x)
-                    "CD" => lineConnectsByX(ln, pat.c.x, pat.d.x)
-                    => false
-                if matchByX
-                    idx := i
-                    break
-    idx
+    found
+
+resolveLegLines(h.xabcd_harmonic p, ls) =>
+    line xa = na
+    line ab = na
+    line bc = na
+    line cd = na
+    n = array.size(ls)
+    if n > 0
+        xa := legLineByEndpoints(p, ls, 0, false)
+        if na(xa)
+            xa := legLineByEndpoints(p, ls, 0, true)
+        ab := legLineByEndpoints(p, ls, 1, false)
+        if na(ab)
+            ab := legLineByEndpoints(p, ls, 1, true)
+        bc := legLineByEndpoints(p, ls, 2, false)
+        if na(bc)
+            bc := legLineByEndpoints(p, ls, 2, true)
+        if h.is_complete(p)
+            cd := legLineByEndpoints(p, ls, 3, false)
+            if na(cd)
+                cd := legLineByEndpoints(p, ls, 3, true)
+
+        // Stable fallback ordering for renderer outputs that don't map by exact endpoints.
+        if na(xa) and n > 0
+            xa := array.get(ls, 0)
+        if na(ab) and n > 1
+            ab := array.get(ls, 1)
+        if na(bc) and n > 2
+            bc := array.get(ls, 2)
+        if na(cd)
+            if h.is_complete(p)
+                cd := n > 3 ? array.get(ls, 3) : na
+            else
+                cd := n > 3 ? array.get(ls, n - 1) : na
+    [xa, ab, bc, cd]
+
+assertPatternPostconditions(h.xabcd_harmonic p, string stage) =>
+    if debug_on
+        hasD = not na(p.d.x) and not na(p.d.y)
+        [bc_u, bc_l, xa_u, xa_l] = ta.harmonic_xabcd_prz(p.tp, p.x.y, p.a.y, p.b.y, p.c.y)
+        [pdL, pdH] = ta.harmonic_xabcd_przClosest(bc_u, bc_l, xa_u, xa_l)
+        projD = na(pdL) or na(pdH) ? na : (pdL + pdH) / 2.0
+        hasProjD = not na(projD)
+        if na(p.score) or p.score != p.score
+            debugLog(stage + " postcondition: score NaN", p.c.x, p.c.y, p.bull)
+        if (hasD or hasProjD) and (na(p.t1) or na(p.t2))
+            debugLog(stage + " postcondition: missing targets", p.c.x, p.c.y, p.bull)
+        if (hasD or hasProjD) and na(p.stop)
+            debugLog(stage + " postcondition: missing stop", p.c.x, p.c.y, p.bull)
+    0
+
+projectedDOutOfBounds(float projD, float xY, float aY, float bY, float cY) =>
+    bool bad = na(projD)
+    if not bad and reject_nonpositive_proj_d and projD <= 0
+        bad := true
+    if not bad and proj_d_max_ext_mult > 0
+        hi = math.max(math.max(math.max(xY, aY), bY), cY)
+        lo = math.min(math.min(math.min(xY, aY), bY), cY)
+        rng = math.max(hi - lo, syminfo.mintick)
+        bad := math.abs(projD - cY) > (rng * proj_d_max_ext_mult)
+    bad
+
+drawIncompleteProjectionLine(h.xabcd_harmonic p, color lnColor) =>
+    line projLn = na
+    if not h.is_complete(p)
+        [bc_u, bc_l, xa_u, xa_l] = ta.harmonic_xabcd_prz(p.tp, p.x.y, p.a.y, p.b.y, p.c.y)
+        [pdL, pdH] = ta.harmonic_xabcd_przClosest(bc_u, bc_l, xa_u, xa_l)
+        projD = na(pdL) or na(pdH) ? na : (pdL + pdH) / 2.0
+        if not projectedDOutOfBounds(projD, p.x.y, p.a.y, p.b.y, p.c.y)
+            projDX = p.c.x + math.max(1, p.c.x - p.b.x)
+            projLn := line.new(p.c.x, p.c.y, projDX, projD, color=lnColor, width=1, style=line.style_dashed)
+    projLn
+
+trackedFillKey(string pid, string slot) =>
+    pid + "|" + slot
+
+clearTrackedFills(string pid) =>
+    pref = pid + "|"
+    n = array.size(trackedFillKeys)
+    if n > 0
+        for i=0 to n-1
+            idx = n-1-i
+            k = array.get(trackedFillKeys, idx)
+            if str.startswith(k, pref)
+                lf = array.remove(trackedFills, idx)
+                array.remove(trackedFillKeys, idx)
+                linefill.delete(lf)
+
+trackFill(string pid, string slot, line l1, line l2, color c) =>
+    if not na(l1) and not na(l2) and l1 != l2
+        lf = linefill.new(l1, l2, c)
+        array.push(trackedFillKeys, trackedFillKey(pid, slot))
+        array.push(trackedFills, lf)
 
 drawFills(h.xabcd_harmonic p, col) =>
+    clearTrackedFills(p.pid)
     ls = p.pLines
-
-    clearCustomFillsForPid(p.pid)
     if array.size(ls) >= 4
         // Fill only XAB and BCD lobes; never shade ABC.
-        xaIdx = findLegLineIdx(p, ls, "XA")
-        abIdx = findLegLineIdx(p, ls, "AB")
-        bcIdx = findLegLineIdx(p, ls, "BC")
-        cdIdx = findLegLineIdx(p, ls, "CD")
-
-        // Fallback to legacy line ordering only if explicit leg matching failed.
-        xabA = xaIdx
-        xabB = abIdx
-        bcdA = bcIdx
-        bcdB = cdIdx
-        if xabA < 0 or xabB < 0
-            xabA := 0
-            xabB := 1
-        if bcdA < 0 or bcdB < 0
-            bcdA := 2
-            bcdB := 3
-
-        if xabA >= 0 and xabB >= 0 and xabA != xabB and xabA < array.size(ls) and xabB < array.size(ls)
-            lf0 = linefill.new(array.get(ls, xabA), array.get(ls, xabB), color.new(col.fill, 60))
-            trackCustomFill(p.pid, 0, lf0)
-        if bcdA >= 0 and bcdB >= 0 and bcdA != bcdB and bcdA < array.size(ls) and bcdB < array.size(ls)
-            lf1 = linefill.new(array.get(ls, bcdA), array.get(ls, bcdB), color.new(col.fill, 60))
-            trackCustomFill(p.pid, 1, lf1)
+        [xaLn, abLn, bcLn, cdLn] = resolveLegLines(p, ls)
+        trackFill(p.pid, "XAB", xaLn, abLn, color.new(col.fill, 60))
+        trackFill(p.pid, "BCD", bcLn, cdLn, color.new(col.fill, 60))
 
 storageFor(isBull, tp) =>
     switch tp
@@ -492,9 +497,8 @@ harmRangeHiLo(float xY, float aY, float bY, float cY) =>
     [hi, lo]
 
 rangeTargetFromD(bool bull, float xY, float aY, float bY, float cY, float dY, float ratio) =>
-    [hi, lo] = harmRangeHiLo(xY, aY, bY, cY)
-    rng = hi - lo
-    bull ? (dY + (rng * ratio)) : (dY - (rng * ratio))
+    adSpan = math.abs(aY - dY)
+    bull ? (dY + (adSpan * ratio)) : (dY - (adSpan * ratio))
 
 harmonic_xabcd_targets(bool bull, float xY, float aY, float bY, float cY, float dY) =>
     t1 = rangeTargetFromD(bull, xY, aY, bY, cY, dY, 0.382)
@@ -644,10 +648,14 @@ success(p) =>
         [p.t1Hit,p.t2Hit,p.sHit,na,na,na,na]
 
 harmonicSymbol(int tp) =>
-    tp==1?"Ɠ":tp==2?"🦇":tp==3?"🦋":tp==4?"🦀":tp==5?"🦈":tp==7?"AB":tp==8?"DBF":tp==9?"DCR":"?"
+    var string[] symbols = array.from("Ɠ", "🦇", "🦋", "🦀", "🦈", "AB", "DBF", "DCR")
+    idx = tpToIdx(tp)
+    idx >= 0 and idx < array.size(symbols) ? array.get(symbols, idx) : "?"
 
 harmonicName(int tp) =>
-    tp==1?"Gartley":tp==2?"Bat":tp==3?"Butterfly":tp==4?"Crab":tp==5?"Shark":tp==7?"Alt Bat":tp==8?"Deep Butterfly":tp==9?"Deep Crab":"Unknown"
+    var string[] names = array.from("Gartley", "Bat", "Butterfly", "Crab", "Shark", "Alt Bat", "Deep Butterfly", "Deep Crab")
+    idx = tpToIdx(tp)
+    idx >= 0 and idx < array.size(names) ? array.get(names, idx) : "Unknown"
 
 przProjectedD(h.xabcd_harmonic p) =>
     [bc_u, bc_l, xa_u, xa_l] = ta.harmonic_xabcd_prz(p.tp, p.x.y, p.a.y, p.b.y, p.c.y)
@@ -658,7 +666,7 @@ przProjectedD(h.xabcd_harmonic p) =>
 fillPatternMetrics(h.xabcd_harmonic p) =>
     hasD = not na(p.d.x) and not na(p.d.y)
     [projD, bc_u, bc_l, xa_u, xa_l] = przProjectedD(p)
-    hasProjD = not na(projD)
+    hasProjD = not projectedDOutOfBounds(projD, p.x.y, p.a.y, p.b.y, p.c.y)
     needRatios = na(p.r_xb) or na(p.r_ac) or na(p.re_xb) or na(p.re_ac) or ((hasD or hasProjD) and (na(p.r_bd) or na(p.r_xd) or na(p.re_bd) or na(p.re_xd)))
     if needRatios
         [rxb, rexb] = ta.harmonic_xabcd_rAndE(p.tp, "xab", p.a.y - p.b.y, p.a.y - p.x.y)
@@ -681,9 +689,8 @@ fillPatternMetrics(h.xabcd_harmonic p) =>
         p.score := ta.harmonic_xabcd_scoreTot(asym, eavg, przscore, edFinal, p.tp, 0.0, w_e, w_p, hasD ? w_d : 0.0)
     if (hasD or hasProjD) and (na(p.t1) or na(p.t2))
         dY = hasD ? p.d.y : projD
-        [hi, lo] = harmRangeHiLo(p.x.y, p.a.y, p.b.y, p.c.y)
-        rng = hi - lo
-        if not na(rng) and rng > 0 and not na(dY)
+        adSpan = math.abs(p.a.y - dY)
+        if not na(adSpan) and adSpan > 0 and not na(dY)
             p.t1 := rangeTargetFromD(p.bull, p.x.y, p.a.y, p.b.y, p.c.y, dY, 0.382)
             p.t2 := rangeTargetFromD(p.bull, p.x.y, p.a.y, p.b.y, p.c.y, dY, 0.618)
     if (hasD or hasProjD) and na(p.stop) and not na(p.t1)
@@ -723,6 +730,7 @@ applyTypeRemap(h.xabcd_harmonic pat, int tp, float xY, float aY, float bY, float
     edFinal = isComplete ? eD : float(na)
     pat.score := ta.harmonic_xabcd_scoreTot(asym, eavg, przscore, edFinal, tp, 0.0, w_e, w_p, isComplete ? w_d : 0.0)
     fillPatternMetrics(pat)
+    assertPatternPostconditions(pat, "init")
     pat
 
 initPatternCompat(int xX,float xY,int aX,float aY,int bX,float bY,int cX,float cY,int dX,float dY,int tp) =>
@@ -735,12 +743,9 @@ initPatternCompat(int xX,float xY,int aX,float aY,int bX,float bY,int cX,float c
             debugLog("Compat init for type " + str.tostring(tp), cX, cY, aY > xY)
     pat
 
-drawTpForCompat(int tp) =>
-    proxyTypeForInit(tp)
-
 drawPatternCompat(h.xabcd_harmonic pat, color lnColor, color fillColor) =>
     origTp = pat.tp
-    drawTp = drawTpForCompat(origTp)
+    drawTp = proxyTypeForInit(origTp)
     if drawTp != origTp
         pat.tp := drawTp
         h.draw_pattern(pat, lnColor)
@@ -750,9 +755,8 @@ drawPatternCompat(h.xabcd_harmonic pat, color lnColor, color fillColor) =>
     0
 
 erasePatternCompat(h.xabcd_harmonic pat) =>
-    clearCustomLinesForPid(pat.pid)
     origTp = pat.tp
-    drawTp = drawTpForCompat(origTp)
+    drawTp = proxyTypeForInit(origTp)
     if drawTp != origTp
         pat.tp := drawTp
         h.erase_pattern(pat)
@@ -763,7 +767,7 @@ erasePatternCompat(h.xabcd_harmonic pat) =>
 
 drawPrzLevelsCompat(h.xabcd_harmonic pat, color lnColor) =>
     origTp = pat.tp
-    drawTp = drawTpForCompat(origTp)
+    drawTp = proxyTypeForInit(origTp)
     if drawTp != origTp
         pat.tp := drawTp
         [ln, lf] = h.draw_prz_levels(pat, lnColor)
@@ -837,11 +841,17 @@ patternState(p) =>
         8
     else
         7
+
+stateTextByCode(int st) =>
+    var string[] stateTxtMap = array.from(" (Success - Target 1, Target 2)", " (Success - Target 1)", " (Failed)", " (No entry)", " (Missed entry)", " (Entry pending)", " (Targets pending)", " (Timed out)", " (Entry expired)")
+    st >= 0 and st < array.size(stateTxtMap) ? array.get(stateTxtMap, st) : " (Timed out)"
+
+stateGlyphByCode(int st) =>
+    var string[] stateGlyphMap = array.from(" ✅✅", " ✅", " ❌", " ⛔", " ⛔", " ⏳", " ⏳", " 🕝", " 🕝")
+    st >= 0 and st < array.size(stateGlyphMap) ? array.get(stateGlyphMap, st) : " 🕝"
         
 successTxt(p) =>
-    var string[] stateTxtMap = array.from(" (Success - Target 1, Target 2)", " (Success - Target 1)", " (Failed)", " (No entry)", " (Missed entry)", " (Entry pending)", " (Targets pending)", " (Timed out)", " (Entry expired)")
-    st = patternState(p)
-    st >= 0 and st < array.size(stateTxtMap) ? array.get(stateTxtMap, st) : " (Timed out)"
+    stateTextByCode(patternState(p))
 
 ratToStr(r) =>
     na(r) ? "NA    " : str.tostring(r, "0.000")
@@ -869,14 +879,15 @@ tooltipText(p) =>
     [rb,rc,rd1,rd2] = ta.harmonic_xabcd_fibDispTxt(p.tp)
     [_,_,e] = entry(p)
     [projD, bc_u, bc_l, xa_u, xa_l] = przProjectedD(p)
+    projOk = not projectedDOutOfBounds(projD, p.x.y, p.a.y, p.b.y, p.c.y)
     predE = float(na)
-    if not h.is_complete(p) and not na(projD)
+    if not h.is_complete(p) and projOk
         [predE,_,_] = ta.harmonic_xabcd_entry(p.bull,p.tp,p.x.y,p.a.y,p.b.y,p.c.y,projD,e_afterC,canonEntryMode,e_afterD,e_lvldPct)
     eY = na(p.e.y) ? (na(e) ? predE : e) : p.e.y
     dispT1 = p.t1
     dispT2 = p.t2
     dispStop = p.stop
-    if not h.is_complete(p) and not na(projD)
+    if not h.is_complete(p) and projOk
         if na(dispT1)
             dispT1 := rangeTargetFromD(p.bull, p.x.y, p.a.y, p.b.y, p.c.y, projD, 0.382)
         if na(dispT2)
@@ -931,9 +942,7 @@ tooltipText(p) =>
 
 
 stateGlyph(p) =>
-    var string[] stateGlyphMap = array.from(" ✅✅", " ✅", " ❌", " ⛔", " ⛔", " ⏳", " ⏳", " 🕝", " 🕝")
-    st = patternState(p)
-    st >= 0 and st < array.size(stateGlyphMap) ? array.get(stateGlyphMap, st) : " 🕝"
+    stateGlyphByCode(patternState(p))
 
 isPatternActive(p) =>
     if not h.is_complete(p)
@@ -1086,8 +1095,8 @@ collectDirectionTypePatterns(bool isBull, int tp) =>
     all
 
 tablePatternBadge(int tp) =>
-    var string[] badges = array.from("GRT", "BAT", "BFL", "CRB", "SHK", "?", "ABT", "DBF", "DCR")
-    idx = tp - 1
+    var string[] badges = array.from("GRT", "BAT", "BFL", "CRB", "SHK", "ABT", "DBF", "DCR")
+    idx = tpToIdx(tp)
     idx >= 0 and idx < array.size(badges) ? array.get(badges, idx) : "?"
 
 labelText(p,stateTxt) =>
@@ -1103,7 +1112,7 @@ refreshPatternLabel(h.xabcd_harmonic pat) =>
     h.draw_label(pat, col.tt, l_txt, labelText(pat,stateGlyph(pat)), tooltipText(pat))
 
 erasePattern(p) =>
-    clearCustomFillsForPid(p.pid)
+    clearTrackedFills(p.pid)
     erasePatternCompat(p)
     h.erase_label(p)
     removeLegMidLabels(p.pid)
@@ -1121,6 +1130,7 @@ removeIncomplete(string pid) =>
 
 drawPattern(p) =>
     fillPatternMetrics(p)
+    assertPatternPostconditions(p, "draw")
     if na(p.score) or p.score != p.score
         isComplete = not na(p.d.x) and not na(p.d.y)
         [eavg, asym, eD, przscore, _, _, _] = ta.harmonic_xabcd_score(p.tp, p.x.x, p.x.y, p.a.x, p.a.y, p.b.x, p.b.y, p.c.x, p.c.y, isComplete ? p.d.x : na, isComplete ? p.d.y : na)
@@ -1133,6 +1143,9 @@ drawPattern(p) =>
         str_label = h.is_complete(p) ? labelText(p,stateTxt) : incompleteLabelText(p)
         tt = tooltipText(p)
         drawPatternCompat(p, col.line, col.fill)
+        projLn = drawIncompleteProjectionLine(p, col.line)
+        if not na(projLn)
+            array.push(p.pLines, projLn)
         if p.invalid_d and array.size(p.pLines) > 3
             line.set_style(array.get(p.pLines,3),line.style_dashed)
         h.erase_label(p)
@@ -1257,12 +1270,14 @@ storeIncomplete(isBull, int[] tps, xX,xY,aX,aY,bX,bY,cX,cY) =>
             if exists == false
                 pat = initPatternCompat(xX,xY,aX,aY,bX,bY,cX,cY,dX,dY,tp)
                 if not na(pat)
+                    [projD, _, _, _, _] = przProjectedD(pat)
+                    projOk = not projectedDOutOfBounds(projD, pat.x.y, pat.a.y, pat.b.y, pat.c.y)
                     if na(pat.score) or pat.score != pat.score
                         [eavg, asym, _, przscore, _, _, _] = ta.harmonic_xabcd_score(pat.tp, pat.x.x, pat.x.y, pat.a.x, pat.a.y, pat.b.x, pat.b.y, pat.c.x, pat.c.y)
                         pat.score := ta.harmonic_xabcd_scoreTot(asym, eavg, przscore, float(na), pat.tp, 0.0, w_e, w_p, 0.0)
                     [_,eC,_] = entry(pat)
                     tolOk = patternRatiosPassBand(pat, false)
-                    if tolOk
+                    if tolOk and projOk
                         if isNotDuplicate(pat)
                             array.push(incompletePatterns,pat)
                             pidCacheAdd(pat.pid)
@@ -1275,11 +1290,51 @@ storeIncomplete(isBull, int[] tps, xX,xY,aX,aY,bX,bY,cX,cY) =>
                             debugLog("Skip duplicate incomplete", cX, cY, isBull)
                     else if not tolOk
                         debugLog("Skip incomplete: fib band mismatch", cX, cY, isBull)
+                    else
+                        debugLog("Skip incomplete: projected D out of bounds", cX, cY, isBull)
+
+xbFitScoreForType(int tp, int xX, float xY, int aX, float aY, int bX, float bY, int cX, float cY) =>
+    int dX = na
+    float dY = na
+    score = 1000000.0
+    pat = initPatternCompat(xX, xY, aX, aY, bX, bY, cX, cY, dX, dY, tp)
+    if not na(pat)
+        xbErr = tp == 5 ? na : pat.re_xb
+        acErr = pat.re_ac
+        xbPart = na(xbErr) ? 1000.0 : math.abs(xbErr)
+        acPart = na(acErr) ? 1.0 : math.abs(acErr)
+        // Prefer lower XB error first; AC error acts as deterministic tie-break.
+        score := xbPart + (acPart * 0.001)
+    score
+
+sortTypesByXbFit(int[] tps, int xX, float xY, int aX, float aY, int bX, float bY, int cX, float cY) =>
+    n = array.size(tps)
+    if n > 1
+        scores = array.new_float(0)
+        for i=0 to n-1
+            tp = array.get(tps, i)
+            array.push(scores, xbFitScoreForType(tp, xX, xY, aX, aY, bX, bY, cX, cY))
+
+        // Stable insertion sort keeps previous order on equal scores.
+        for i=1 to n-1
+            keyTp = array.get(tps, i)
+            keySc = array.get(scores, i)
+            j = i - 1
+            while j >= 0
+                curSc = array.get(scores, j)
+                if curSc > keySc
+                    array.set(scores, j + 1, curSc)
+                    array.set(tps, j + 1, array.get(tps, j))
+                    j -= 1
+                else
+                    break
+            array.set(scores, j + 1, keySc)
+            array.set(tps, j + 1, keyTp)
+    tps
 
 setTargets(p) =>
-    [hi, lo] = harmRangeHiLo(p.x.y, p.a.y, p.b.y, p.c.y)
-    rng = hi - lo
-    if not na(rng) and rng > 0 and not na(p.d.y)
+    adSpan = math.abs(p.a.y - p.d.y)
+    if not na(adSpan) and adSpan > 0 and not na(p.d.y)
         p.t1 := rangeTargetFromD(p.bull, p.x.y, p.a.y, p.b.y, p.c.y, p.d.y, 0.382)
         p.t2 := rangeTargetFromD(p.bull, p.x.y, p.a.y, p.b.y, p.c.y, p.d.y, 0.618)
 
@@ -1708,7 +1763,16 @@ printStats() =>
         array.clear(accPatternCount), array.clear(accTradeCount), array.clear(accT1Hits), array.clear(accT2Hits), array.clear(accTotReturn)
 
 statsSignature() =>
-    s = array.size(bullGart)*2 + array.size(bearGart)*3 + array.size(bullBat)*5 + array.size(bearBat)*7 + array.size(bullBfly)*11 + array.size(bearBfly)*13 + array.size(bullCrab)*17 + array.size(bearCrab)*19 + array.size(bullShark)*23 + array.size(bearShark)*29 + array.size(bullAltBat)*61 + array.size(bearAltBat)*67 + array.size(bullDeepBfly)*71 + array.size(bearDeepBfly)*73 + array.size(bullDeepCrab)*79 + array.size(bearDeepCrab)*83 + array.size(incompletePatterns)*31 + array.size(pending)*37
+    var int[] sigTps = array.from(1, 2, 3, 4, 5, 7, 8, 9)
+    var int[] bullW = array.from(2, 5, 11, 17, 23, 61, 71, 79)
+    var int[] bearW = array.from(3, 7, 13, 19, 29, 67, 73, 83)
+    s = 0
+    for i=0 to array.size(sigTps)-1
+        tp = array.get(sigTps, i)
+        s += array.size(storageFor(true, tp)) * array.get(bullW, i)
+        s += array.size(storageFor(false, tp)) * array.get(bearW, i)
+    s += array.size(incompletePatterns) * 31
+    s += array.size(pending) * 37
     if array.size(pending) > 0
         lp = array.get(pending, array.size(pending)-1)
         s += (lp.d.x+1)*41 + patternState(lp)*43 + (lp.tp+1)*47 + (lp.bull ? 53 : 59)
@@ -1841,6 +1905,7 @@ find_pattern(pl,isBull=true) =>
                 if ta.harmonic_xabcd_validateIncompleteByType(tp,xX,xY,aX,aY,bX,bY,cX,cY,pctErr,pctAsym)
                     array.push(matchedTps,tp)
             if array.size(matchedTps) > 0
+                sortTypesByXbFit(matchedTps, xX, xY, aX, aY, bX, bY, cX, cY)
                 storeIncomplete(isBull,matchedTps,xX,xY,aX,aY,bX,bY,cX,cY)
 
 find(isBull=true) =>
@@ -1911,15 +1976,12 @@ find(false)
 detectPointD()
 
 if barstate.islast
-
-    if barstate.islast and not nanRepairDone
-        repairNaNArr(bullAltBat)
-        repairNaNArr(bearAltBat)
-        repairNaNArr(bullDeepBfly)
-        repairNaNArr(bearDeepBfly)
-        repairNaNArr(bullDeepCrab)
-        repairNaNArr(bearDeepCrab)
-        nanRepairDone := true
+    repairNaNArr(bullAltBat)
+    repairNaNArr(bearAltBat)
+    repairNaNArr(bullDeepBfly)
+    repairNaNArr(bearDeepBfly)
+    repairNaNArr(bullDeepCrab)
+    repairNaNArr(bearDeepCrab)
 
     nStatsRows = array.size(includeTps) + 3
     if na(statsTbl) or statsTblRows != nStatsRows
