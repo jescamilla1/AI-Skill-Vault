@@ -24,12 +24,23 @@ Skills are structured prompt systems — not single prompts. Each skill is a mod
 
 | Skill | Domain | Status |
 |---|---|---|
-| [Pine Script Mastery](./pinescript-mastery/) | TradingView / Pine Script v5 & v6 | `v1.0.0` |
+| [Pinescript Claude Skill](./Pinescript%20Claude%20Skill/) | TradingView / Pine Script v5 & v6 | `v1.0.0` |
 
 ---
 
-### 🌲 Pine Script Mastery
+### 🌲 Pinescript Claude Skill
 Turns Claude into a senior Pine Script developer. Write indicators, strategies, and libraries with production structure, risk management, repainting prevention, and verified bug fixes — from a simple idea or existing broken code.
+
+---
+
+## Built with this skill
+
+[`Harmonic Detection/`](./Harmonic%20Detection/) — a harmonic chart-pattern
+indicator (`Harmonic.pine`) plus its supporting technical-analysis library
+(`TA.pine`), built using the Pinescript Claude Skill above. See
+[the writeup](https://jescamilla1.github.io/articles/harmonic-patterns.html)
+for what it does and why it was built from scratch instead of an existing
+library.
 
 ---
 
